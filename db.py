@@ -11,8 +11,26 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
-PG = DATABASE_URL.startswith(("postgres://", "postgresql://"))
+def _clean_db_url(raw):
+    """Accept the string however it was pasted: with spaces/newlines, wrapped in quotes,
+    or as Neon's `psql '…'` snippet. Returns the bare postgres:// URL or ''."""
+    import re
+    m = re.search(r"postgres(?:ql)?://[^\s'\"]+", raw or "")
+    return m.group(0) if m else ""
+
+
+_RAW_DB_URL = os.environ.get("DATABASE_URL", "")
+DATABASE_URL = _clean_db_url(_RAW_DB_URL)
+PG = bool(DATABASE_URL)
+
+
+def db_url_hint():
+    """Describe DATABASE_URL without revealing it (for startup errors)."""
+    raw = _RAW_DB_URL.strip()
+    if not raw:
+        return "DATABASE_URL is empty or missing."
+    return (f"DATABASE_URL is set ({len(raw)} characters, starts with {raw[:6]!r}) "
+            "but contains no postgresql:// address.")
 DB_PATH = Path(os.environ.get("SQLITE_PATH", Path(__file__).parent / "data" / "trading.db"))
 
 PK = "SERIAL PRIMARY KEY" if PG else "INTEGER PRIMARY KEY AUTOINCREMENT"

@@ -25,7 +25,8 @@ import market
 
 ON_SERVER = bool(os.environ.get("RENDER") or os.environ.get("PRODUCTION"))
 if ON_SERVER and not db.PG:
-    raise SystemExit("DATABASE_URL (Postgres) must be set on the server; local SQLite would be wiped on each deploy.")
+    raise SystemExit("DATABASE_URL (Postgres) must be set on the server; local SQLite would be wiped on each deploy. "
+                     + db.db_url_hint())
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
