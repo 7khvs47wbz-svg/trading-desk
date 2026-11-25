@@ -1,0 +1,21 @@
+# Render Blueprint: New > Blueprint > pick this repo.
+# DATABASE_URL is entered by hand (a free Neon Postgres connection string).
+services:
+  - type: web
+    name: trading-desk
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # one worker keeps the shared price cache and locks in one process; threads serve users in parallel
+    startCommand: gunicorn app:app --workers 1 --threads 8 --timeout 300 --bind 0.0.0.0:$PORT
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: FMP_API_KEY
+        sync: false

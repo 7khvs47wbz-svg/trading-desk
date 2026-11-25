@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="Paper-trading desk with market posture, stock screens, position sizing and a trade journal. Not financial advice.">
+<title>Trading Desk</title>
+<script>try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+<!-- Lucide-style icon sprite -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></symbol>
+  <symbol id="i-trend" viewBox="0 0 24 24"><path d="M22 7 13.5 15.5 8.5 10.5 2 17"/><path d="M16 7h6v6"/></symbol>
+  <symbol id="i-pie" viewBox="0 0 24 24"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="m6 3 14 9-14 9V3z"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+</svg>
+
+<!-- SIGN IN -->
+<div id="auth" hidden>
+  <div class="auth-card">
+    <div class="brand"><span class="logo" aria-hidden="true"><svg class="i"><use href="#i-trend"/></svg></span>Trading Desk</div>
+    <p class="muted">Practise trading with $100,000 of paper money. Market posture, stock screens, position sizing and a trade journal, built on the open-source claude-trading-skills.</p>
+    <div class="seg" role="tablist" aria-label="Account">
+      <button role="tab" id="auth-login-tab" aria-selected="true">Sign in</button>
+      <button role="tab" id="auth-signup-tab" aria-selected="false">Create account</button>
+    </div>
+    <form id="auth-form" novalidate>
+      <label class="field">Email <input id="auth-email" type="email" autocomplete="email" required></label>
+      <label class="field">Password <input id="auth-pw" type="password" autocomplete="current-password" minlength="8" required>
+        <span class="hint" id="auth-pw-hint" hidden>At least 8 characters.</span></label>
+      <p id="auth-error" class="form-error" role="alert"></p>
+      <button class="primary wide" id="auth-submit" type="submit">Sign in</button>
+    </form>
+    <p class="muted small">Paper trading only: no real money, no broker connection, and nothing here is financial advice. Your account data is private to you and you can delete it at any time in Settings.</p>
+  </div>
+</div>
+
+<header>
+  <div class="brand"><span class="logo" aria-hidden="true"><svg class="i"><use href="#i-trend"/></svg></span>Trading Desk</div>
+  <nav id="tabs" role="tablist" aria-label="Sections">
+    <button role="tab" data-tab="cockpit" aria-selected="true"><svg class="i" aria-hidden="true"><use href="#i-gauge"/></svg>Cockpit</button>
+    <button role="tab" data-tab="screener" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-filter"/></svg>Screener</button>
+    <button role="tab" data-tab="paper" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-trend"/></svg>Paper Trading</button>
+    <button role="tab" data-tab="portfolio" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-pie"/></svg>Portfolio</button>
+    <button role="tab" data-tab="journal" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-book"/></svg>Journal</button>
+    <button role="tab" data-tab="tools" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-sliders"/></svg>Sizer &amp; Settings</button>
+  </nav>
+  <button id="theme-toggle" class="theme-btn" aria-label="Switch to light theme"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg></button>
+  <button id="logout" class="theme-btn" aria-label="Sign out" title="Sign out"><svg class="i" aria-hidden="true"><use href="#i-logout"/></svg></button>
+</header>
+<div class="disclaimer"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg>Decision support and paper trading only. Not financial advice. No real orders are placed. Prices come from Yahoo Finance and are cross-checked against Nasdaq; paper trades are blocked if the two differ by more than 2%.</div>
+<main>
+
+<!-- COCKPIT -->
+<section id="cockpit" class="tab active" role="tabpanel" aria-labelledby="cockpit">
+  <div class="row between wrap">
+    <h2>Daily market check</h2>
+    <button id="regime-refresh"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh from public data</button>
+  </div>
+  <div id="posture" class="cards" aria-live="polite"></div>
+  <div class="grid2">
+    <div class="panel"><h3>Market breadth <span class="muted small">market-breadth-analyzer</span></h3><div id="breadth"></div></div>
+    <div class="panel"><h3>Uptrend participation <span class="muted small">uptrend-analyzer</span></h3><div id="uptrend"></div></div>
+  </div>
+  <div class="grid2">
+    <div class="panel"><h3>Breadth score history</h3><div class="chart-box"><canvas id="breadth-chart" role="img" aria-label="Breadth composite score over time"></canvas></div></div>
+    <div class="panel"><h3>Circuit breaker <span class="muted small">drawdown-circuit-breaker rules</span></h3><div id="circuit"></div></div>
+  </div>
+</section>
+
+<!-- SCREENER -->
+<section id="screener" class="tab" role="tabpanel">
+  <h2>Screener</h2>
+  <div class="panel">
+    <div class="form">
+      <label>Screen
+        <select id="screen-kind">
+          <option value="vcp">Trend template + VCP (vcp-screener)</option>
+          <option value="momentum">Momentum burst (stockbee)</option>
+          <option value="canslim">CANSLIM lite (canslim-screener)</option>
+          <option value="value">Value + dividend (value-dividend-screener)</option>
+          <option value="fmp_vcp" id="fmp-opt">Full VCP screener via FMP API</option>
+        </select></label>
+      <label class="full">Tickers <input id="screen-universe" placeholder="e.g. AAPL MSFT NVDA">
+        <span class="hint">Leave blank to use the default universe from Settings.</span></label>
+    </div>
+    <div class="row wrap">
+      <button id="screen-run" class="primary"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg>Run screen</button>
+      <button id="screen-bt"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>How has this screen done?</button>
+    </div>
+  </div>
+  <div id="bt-result" aria-live="polite"></div>
+  <p class="muted small" id="screen-note" aria-live="polite"></p>
+  <div id="screen-results"></div>
+</section>
+
+<!-- PAPER -->
+<section id="paper" class="tab" role="tabpanel">
+  <h2>Paper trading</h2>
+  <div id="paper-summary" class="cards"></div>
+  <div class="grid2">
+    <div class="panel">
+      <h3>New paper trade</h3>
+      <div class="form">
+        <label>Symbol <input id="pt-symbol" placeholder="NVDA" autocapitalize="characters" autocomplete="off"></label>
+        <label>Stop price <input id="pt-stop" type="number" step="0.01" inputmode="decimal"><span class="hint">Blank = 2× ATR below price</span></label>
+        <label>Target <input id="pt-target" type="number" step="0.01" inputmode="decimal"><span class="hint">Optional</span></label>
+        <label>Setup <input id="pt-setup" placeholder="VCP breakout"></label>
+        <label class="full">Thesis / written plan <textarea id="pt-thesis" rows="2" placeholder="Why, entry trigger, invalidation"></textarea></label>
+        <label class="check full"><input type="checkbox" id="pt-plan"> Entry is in my written plan</label>
+      </div>
+      <button id="pt-preview" class="primary"><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg>Size &amp; check</button>
+      <div id="pt-result" aria-live="polite"></div>
+    </div>
+    <div class="panel">
+      <div class="row between wrap"><h3 style="margin:0">Open positions</h3>
+        <div class="row"><button id="pt-stops" class="small">Check stops/targets</button><button id="pt-reset" class="small ghost">Reset account</button></div></div>
+      <div id="pt-positions" class="scroll"></div>
+      <h3 style="margin-top:var(--sp-5)">Recent orders</h3>
+      <div id="pt-orders" class="scroll"></div>
+    </div>
+  </div>
+</section>
+
+<!-- PORTFOLIO -->
+<section id="portfolio" class="tab" role="tabpanel">
+  <h2>Portfolio</h2>
+  <div id="pf-summary" class="cards"></div>
+  <div id="pf-warnings"></div>
+  <div class="grid2">
+    <div class="panel">
+      <h3>Holdings</h3>
+      <div id="pf-table" class="scroll"></div>
+      <div class="form" style="margin-top:var(--sp-4)">
+        <label>Symbol <input id="pf-symbol" autocapitalize="characters" autocomplete="off"></label>
+        <label>Shares <input id="pf-shares" type="number" step="any" inputmode="decimal"></label>
+        <label>Avg cost <input id="pf-cost" type="number" step="any" inputmode="decimal"></label>
+      </div>
+      <button id="pf-add">Add / update holding</button>
+      <details><summary>Import CSV</summary>
+        <label class="field">CSV rows (symbol, shares, cost_basis)
+          <textarea id="pf-csv" rows="5" placeholder="symbol,shares,cost_basis&#10;VTI,40,210.5&#10;SCHD,120,26.1"></textarea></label>
+        <button id="pf-import" style="margin-top:var(--sp-2)">Import</button>
+      </details>
+      <div class="row wrap"><label class="field">Cash in account <input id="pf-cash" type="number" step="any" inputmode="decimal"></label><button id="pf-cash-save" style="align-self:flex-end">Save cash</button></div>
+    </div>
+    <div class="panel"><h3>Sector allocation</h3><div class="chart-box"><canvas id="pf-chart" role="img" aria-label="Holdings value by sector"></canvas></div></div>
+  </div>
+</section>
+
+<!-- JOURNAL -->
+<section id="journal" class="tab" role="tabpanel">
+  <h2>Journal</h2>
+  <div id="jr-stats" class="cards"></div>
+  <div class="grid2">
+    <div class="panel"><h3>Cumulative P&amp;L</h3><div class="chart-box"><canvas id="jr-chart" role="img" aria-label="Cumulative realized profit and loss"></canvas></div></div>
+    <div class="panel"><h3>Weekly digest <span class="muted small">weekly-performance-digest</span></h3><div id="jr-weekly" class="scroll"></div></div>
+  </div>
+  <div class="panel">
+    <h3>Trades</h3>
+    <div id="jr-table" class="scroll"></div>
+  </div>
+  <div class="panel">
+    <h3>Log a trade from elsewhere</h3>
+    <div class="form">
+      <label>Symbol <input id="jr-symbol" autocapitalize="characters" autocomplete="off"></label>
+      <label>Shares <input id="jr-shares" type="number" step="any" inputmode="decimal"></label>
+      <label>Entry <input id="jr-entry" type="number" step="any" inputmode="decimal"></label>
+      <label>Exit <input id="jr-exit" type="number" step="any" inputmode="decimal"></label>
+      <label>Stop <input id="jr-stop" type="number" step="any" inputmode="decimal"></label>
+      <label>Setup <input id="jr-setup"></label>
+      <label>Followed plan?
+        <select id="jr-followed"><option value="">Not recorded</option><option value="1">Yes</option><option value="0">No</option></select></label>
+      <label class="full">Lessons (signal-postmortem) <textarea id="jr-lessons" rows="2"></textarea></label>
+    </div>
+    <button id="jr-add">Add to journal</button>
+  </div>
+</section>
+
+<!-- TOOLS -->
+<section id="tools" class="tab" role="tabpanel">
+  <h2>Sizer &amp; settings</h2>
+  <div class="grid2">
+    <div class="panel">
+      <h3>Position sizer <span class="muted small">position-sizer</span></h3>
+      <div class="form">
+        <label>Account size <input id="ps-account" type="number" value="50000" inputmode="decimal"></label>
+        <label>Entry <input id="ps-entry" type="number" step="0.01" inputmode="decimal"></label>
+        <label>Stop <input id="ps-stop" type="number" step="0.01" inputmode="decimal"></label>
+        <label>ATR <input id="ps-atr" type="number" step="0.01" inputmode="decimal"><span class="hint">Used if no stop</span></label>
+        <label>Risk % <input id="ps-risk" type="number" step="0.1" value="1" inputmode="decimal"></label>
+        <label>Max position % <input id="ps-max" type="number" value="20" inputmode="decimal"></label>
+        <label class="check full"><input type="checkbox" id="ps-kelly"> Add Kelly sizing from my journal stats</label>
+      </div>
+      <button id="ps-run" class="primary">Calculate</button>
+      <div id="ps-result" aria-live="polite"></div>
+    </div>
+    <div class="panel">
+      <h3>Settings</h3>
+      <div class="form">
+        <label>Default risk % per trade <input id="st-risk" type="number" step="0.1" inputmode="decimal"></label>
+        <label>Max position % <input id="st-max" type="number" inputmode="decimal"></label>
+        <label class="full">Screener universe <textarea id="st-universe" rows="5"></textarea></label>
+      </div>
+      <button id="st-save">Save settings</button>
+      <p class="muted small" id="st-info"></p>
+    </div>
+  </div>
+  <div class="panel">
+    <h3>Account</h3>
+    <p>Signed in as <b id="acct-email"></b></p>
+    <div class="grid2">
+      <div>
+        <h4>Change password</h4>
+        <div class="form">
+          <label>Current password <input id="pw-current" type="password" autocomplete="current-password"></label>
+          <label>New password <input id="pw-new" type="password" autocomplete="new-password" minlength="8"><span class="hint">At least 8 characters. Other devices are signed out.</span></label>
+        </div>
+        <button id="pw-save">Change password</button>
+      </div>
+      <div>
+        <h4>Delete account</h4>
+        <p class="muted small">Permanently deletes your login, paper trades, holdings, journal and settings. This can't be undone.</p>
+        <div class="form"><label>Password <input id="del-pw" type="password" autocomplete="current-password"></label></div>
+        <button id="acct-delete" class="danger">Delete my account</button>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>
