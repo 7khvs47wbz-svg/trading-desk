@@ -11,6 +11,7 @@ import secrets
 import time
 import traceback
 from collections import defaultdict, deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 
@@ -69,6 +70,12 @@ def security_headers(resp):
         "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
         "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
+    if request.path.startswith("/api/"):
+        resp.headers["Cache-Control"] = "no-store"
+    elif request.path in ("/", "/index.html"):
+        resp.headers["Cache-Control"] = "no-cache"
+    else:
+        resp.headers["Cache-Control"] = "public, max-age=3600"
     if ON_SERVER:
         resp.headers["Strict-Transport-Security"] = "max-age=31536000"
     return resp
@@ -290,7 +297,7 @@ def screen():
     universe = universe_from(b.get("universe") or setting("universe"))
     if b.get("kind") == "fmp_vcp":
         return {"results": engines.fmp_vcp(universe)}
-    return {"results": market.run_screen(b["kind"], universe), "universe_size": len(universe)}
+    return {**market.run_screen(b["kind"], universe), "universe_size": len(universe)}
 
 
 @app.post("/api/backtest")
@@ -673,6 +680,150 @@ def update_journal(jid):
 def delete_journal(jid):
     db.execute("DELETE FROM journal WHERE id=? AND user_id=?", (jid, g.uid))
     return journal()
+
+
+# ------------------------------------------------------------- charts & watchlist
+
+@app.get("/api/chart/<symbol>")
+@login_required
+def chart(symbol):
+    return market.chart(symbol, request.args.get("period", "1y"))
+
+
+WATCH_MAX = 50
+
+
+def _watch_row(w):
+    try:
+        return {**w, **market.watch_signals(w["symbol"])}
+    except Exception:  # noqa: BLE001  (one bad ticker shouldn't break the board)
+        return {**w, "error": "No price data right now."}
+
+
+@app.get("/api/watchlist")
+@login_required
+def watchlist():
+    items = db.rows("SELECT id, symbol, note, added_at FROM watchlist WHERE user_id=? ORDER BY added_at, id", (g.uid,))
+    with ThreadPoolExecutor(6) as ex:
+        rows = list(ex.map(_watch_row, items))
+    return {"items": rows, "max": WATCH_MAX}
+
+
+@app.post("/api/watchlist")
+@login_required
+def watch_add():
+    b = body()
+    sym = market.clean_symbol(b.get("symbol"))
+    if db.one("SELECT id FROM watchlist WHERE user_id=? AND symbol=?", (g.uid, sym)):
+        return {"ok": True, "symbol": sym, "already": True}
+    n = db.one("SELECT COUNT(*) AS n FROM watchlist WHERE user_id=?", (g.uid,))["n"]
+    if n >= WATCH_MAX:
+        raise ValueError(f"Your watchlist is full ({WATCH_MAX} stocks). Remove one first.")
+    market.history(sym, "1y")  # rejects tickers with no data before they are saved
+    db.insert("INSERT INTO watchlist (user_id, symbol, note, added_at) VALUES (?,?,?,?)",
+              (g.uid, sym, _text(b, "note", 200), db.now_iso()))
+    return {"ok": True, "symbol": sym}
+
+
+@app.delete("/api/watchlist/<symbol>")
+@login_required
+def watch_remove(symbol):
+    db.execute("DELETE FROM watchlist WHERE user_id=? AND symbol=?", (g.uid, market.clean_symbol(symbol)))
+    return {"ok": True}
+
+
+@app.get("/api/watchlist/symbols")
+@login_required
+def watch_symbols():
+    return {"symbols": [r["symbol"] for r in db.rows("SELECT symbol FROM watchlist WHERE user_id=?", (g.uid,))]}
+
+
+# ------------------------------------------------------------- trade review
+
+def _days(a, b):
+    try:
+        return (datetime.fromisoformat(b) - datetime.fromisoformat(a)).total_seconds() / 86400
+    except (TypeError, ValueError):
+        return None
+
+
+def _group(trades):
+    n = len(trades)
+    rs = [t["r_multiple"] for t in trades if t["r_multiple"] is not None]
+    return {"trades": n, "win_rate_pct": round(sum(t["pnl"] > 0 for t in trades) / n * 100, 1) if n else None,
+            "avg_pnl": round(sum(t["pnl"] for t in trades) / n, 2) if n else None,
+            "net_pnl": round(sum(t["pnl"] for t in trades), 2),
+            "avg_r": round(sum(rs) / len(rs), 2) if rs else None}
+
+
+R_BUCKETS = [("< −2R", None, -2), ("−2 to −1", -2, -1), ("−1 to 0", -1, 0),
+             ("0 to 1", 0, 1), ("1 to 2", 1, 2), ("> 2R", 2, None)]
+
+
+def trade_review(entries):
+    """What is and isn't working, from closed journal trades (tested in tests/test_calcs.py)."""
+    closed = [e for e in entries if e["pnl"] is not None and e["closed_at"]]
+    out = {"trades": len(closed), "insights": []}
+    if not closed:
+        out["insights"].append("Close a few paper trades and this page will show what's working for you.")
+        return out
+    by_setup = defaultdict(list)
+    for t in closed:
+        by_setup[(t["setup"] or "No setup recorded").strip()].append(t)
+    out["by_setup"] = sorted(({"setup": k, **_group(v)} for k, v in by_setup.items()), key=lambda r: -r["net_pnl"])
+    by_exit = defaultdict(list)
+    for t in closed:
+        by_exit[(t["exit_reason"] or "not recorded").strip()].append(t)
+    out["by_exit"] = sorted(({"reason": k, **_group(v)} for k, v in by_exit.items()), key=lambda r: -r["trades"])
+    rs = [t["r_multiple"] for t in closed if t["r_multiple"] is not None]
+    out["r_buckets"] = [{"label": lab, "count": sum(1 for r in rs if (lo is None or r >= lo) and (hi is None or r < hi))}
+                        for lab, lo, hi in R_BUCKETS]
+    wins, losses = [t for t in closed if t["pnl"] > 0], [t for t in closed if t["pnl"] < 0]
+    hold = lambda ts: [d for d in (_days(t["opened_at"], t["closed_at"]) for t in ts) if d is not None]  # noqa: E731
+    hw, hl = hold(wins), hold(losses)
+    out["hold_days"] = {"winners": round(sum(hw) / len(hw), 1) if hw else None,
+                        "losers": round(sum(hl) / len(hl), 1) if hl else None}
+    gate_go = [t for t in closed if t["gate_decision"] == "GO" and not t["overridden"]]
+    overr = [t for t in closed if t["overridden"]]
+    out["gate"] = {"followed": _group(gate_go), "overridden": _group(overr)}
+    fp_yes = [t for t in closed if t["followed_plan"] == 1]
+    fp_no = [t for t in closed if t["followed_plan"] == 0]
+    out["plan"] = {"followed": _group(fp_yes), "broken": _group(fp_no)}
+    out["biggest_losses"] = [{k: t[k] for k in ("symbol", "pnl", "r_multiple", "setup", "exit_reason", "lessons", "closed_at")}
+                             for t in sorted(losses, key=lambda t: t["pnl"])[:3]]
+
+    ins = out["insights"]
+    money = lambda x: ("−$" if x < 0 else "$") + f"{abs(x):,.2f}"  # noqa: E731
+    if len(closed) < 5:
+        ins.append(f"Only {len(closed)} closed trade{'s' if len(closed) != 1 else ''} so far; patterns get meaningful after about 20.")
+    ranked = [r for r in out["by_setup"] if r["trades"] >= 3]
+    if len(ranked) >= 2:
+        best, worst = ranked[0], ranked[-1]
+        ins.append(f"Best setup: {best['setup']} ({best['trades']} trades, {money(best['net_pnl'])}). "
+                   f"Weakest: {worst['setup']} ({worst['trades']} trades, {money(worst['net_pnl'])}).")
+    if overr and gate_go:
+        a, b = _group(overr)["avg_pnl"], _group(gate_go)["avg_pnl"]
+        ins.append(f"Trades where you overrode the discipline gate averaged {money(a)}, versus {money(b)} when it said GO.")
+    if fp_yes and fp_no:
+        a, b = _group(fp_yes)["avg_pnl"], _group(fp_no)["avg_pnl"]
+        ins.append(f"Following your plan averaged {money(a)} per trade; breaking it averaged {money(b)}.")
+    if hw and hl and out["hold_days"]["losers"] > out["hold_days"]["winners"] * 1.25:
+        ins.append(f"You held losers {out['hold_days']['losers']} days on average but winners only "
+                   f"{out['hold_days']['winners']}. Cutting losers sooner or letting winners run would help.")
+    big = sum(1 for r in rs if r < -1.1)
+    if big:
+        ins.append(f"{big} trade{'s' if big != 1 else ''} lost more than 1R, so the planned stop wasn't respected.")
+    if rs and len(rs) >= 3:
+        exp = sum(rs) / len(rs)
+        ins.append(f"Average result is {exp:+.2f}R per trade " + ("(a positive edge so far)." if exp > 0.005
+                   else "(negative so far)." if exp < -0.005 else "(break-even so far)."))
+    return out
+
+
+@app.get("/api/review")
+@login_required
+def review():
+    return trade_review(db.rows("SELECT * FROM journal WHERE user_id=?", (g.uid,)))
 
 
 if __name__ == "__main__":

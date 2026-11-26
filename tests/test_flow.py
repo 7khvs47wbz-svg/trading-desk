@@ -1,4 +1,5 @@
 """End-to-end API tests: accounts, isolation between users, and paper-trade cash maths."""
+import pandas as pd
 import pytest
 
 import app as appmod
@@ -96,3 +97,40 @@ def test_delete_account(client):
     assert client.post("/api/auth/delete", json={"password": "wrong"}).status_code == 400
     assert client.post("/api/auth/delete", json={"password": "correct horse 1"}).status_code == 200
     assert client.post("/api/auth/login", json={"email": "gone@test.local", "password": "correct horse 1"}).status_code == 400
+
+
+def _fake_hist(n=300):
+    idx = pd.bdate_range("2025-01-01", periods=n)
+    c = pd.Series(range(100, 100 + n), index=idx, dtype=float)
+    return pd.DataFrame({"Open": c, "High": c + 1, "Low": c - 1, "Close": c, "Volume": 1_000_000.0}, index=idx)
+
+
+def test_chart_moving_averages_are_exact(client, monkeypatch):
+    monkeypatch.setattr(market, "history", lambda s, p="1y": _fake_hist())
+    signup(client, "chart@test.local")
+    bars = client.get("/api/chart/AAPL?period=3mo").json["bars"]
+    assert len(bars) == 63
+    last = bars[-1]
+    assert last["c"] == 399 and last["ma20"] == pytest.approx(sum(range(380, 400)) / 20)
+    assert last["ma200"] == pytest.approx(sum(range(200, 400)) / 200)
+    assert client.get("/api/chart/AAPL?period=10y").status_code == 400
+
+
+def test_watchlist_is_private_and_capped(client, monkeypatch):
+    monkeypatch.setattr(market, "history", lambda s, p="1y": _fake_hist())
+    signup(client, "w1@test.local")
+    assert client.post("/api/watchlist", json={"symbol": "msft"}).json["symbol"] == "MSFT"
+    assert client.post("/api/watchlist", json={"symbol": "MSFT"}).json["already"] is True
+    items = client.get("/api/watchlist").json["items"]
+    assert [i["symbol"] for i in items] == ["MSFT"] and items[0]["flags"]["uptrend"] is True
+    client.post("/api/auth/logout", json={})
+    signup(client, "w2@test.local")
+    assert client.get("/api/watchlist").json["items"] == []
+    assert client.delete("/api/watchlist/MSFT", json={}).status_code == 200  # can't touch someone else's list
+    client.post("/api/auth/logout", json={})
+    client.post("/api/auth/login", json={"email": "w1@test.local", "password": "correct horse 1"})
+    assert len(client.get("/api/watchlist").json["items"]) == 1
+    monkeypatch.setattr(appmod, "WATCH_MAX", 1)
+    assert client.post("/api/watchlist", json={"symbol": "AAPL"}).status_code == 400
+    assert client.delete("/api/watchlist/MSFT", json={}).json["ok"]
+    assert client.get("/api/watch" + "list/symbols").json["symbols"] == []

@@ -16,6 +16,8 @@ import pandas as pd
 import requests
 import yfinance as yf
 
+import strategies
+
 warnings.filterwarnings("ignore")
 
 _cache = {}
@@ -139,7 +141,7 @@ def _clean(x):
     return None if math.isnan(f) or math.isinf(f) else round(f, 4)
 
 
-_DAYS = {"6mo": 190, "1y": 370, "2y": 735}
+_DAYS = {"6mo": 190, "1y": 370, "2y": 735, "5y": 1830}
 
 
 def _yahoo_or_nasdaq(symbol, period):
@@ -290,7 +292,8 @@ def screen_trend_vcp(data, rs):
                 "suggested_stop": round(float(win.tail(10)["Low"].min()), 2),
                 "checks": {k: bool(v) for k, v in checks.items()},
             })
-    return sorted(out, key=lambda r: -r["score"])
+    # strongest relative strength first, score breaks ties (same order the backtest uses)
+    return sorted(out, key=lambda r: (-(r["rs"] or 0), -r["score"]))
 
 
 def screen_momentum_burst(data, rs):
@@ -366,74 +369,49 @@ def screen_canslim(symbols, data, rs):
     return sorted(out, key=lambda r: -r["score"])
 
 
+PRICE_SCREENS = ("vcp", "momentum", "leaders", "pullback")
+
+
 def run_screen(kind, symbols):
+    """Returns {"results": [...], "note": str|None}."""
     symbols = [clean_symbol(x) for x in symbols]
+    if kind in ("leaders", "pullback"):
+        data = bulk_history(sorted(set(symbols) | {"SPY"}), "2y")
+        if "SPY" not in data:
+            raise ValueError("Couldn't load SPY, which these screens need.")
+        stocks = {s: d for s, d in data.items() if s != "SPY" and s in symbols}
+        res, note = strategies.live(kind, stocks, data["SPY"])
+        return {"results": res, "note": note}
     data = bulk_history(symbols, "2y")
     rs = _rs_scores(data)
     if kind == "vcp":
-        return screen_trend_vcp(data, rs)
+        return {"results": screen_trend_vcp(data, rs), "note": None}
     if kind == "momentum":
-        return screen_momentum_burst(data, rs)
+        return {"results": screen_momentum_burst(data, rs), "note": None}
     if kind == "value":
-        return screen_value_dividend(symbols)
+        return {"results": screen_value_dividend(symbols), "note": None}
     if kind == "canslim":
-        return screen_canslim(symbols, data, rs)
+        return {"results": screen_canslim(symbols, data, rs), "note": None}
     raise ValueError(f"unknown screen {kind}")
 
 
 # ---------------------------------------------------------------- backtest
 
-FWD = 20       # holding period in trading days
-STEP = 10      # re-run the screen every 10 trading days
-BACKTESTABLE = {"vcp": screen_trend_vcp, "momentum": screen_momentum_burst}
-
-
 def backtest(kind, symbols):
-    """Walk-forward test: run the screen on past dates using only data known then,
-    and measure each pick's next-20-day return against SPY."""
-    if kind not in BACKTESTABLE:
+    """5-year walk-forward basket test (see strategies.backtest)."""
+    if kind not in strategies.HOLD:
         return {"kind": kind, "supported": False,
                 "reason": "This screen uses today's fundamentals (earnings, dividends), and the free data "
                           "has no point-in-time history of them, so an honest backtest isn't possible."}
     symbols = sorted({clean_symbol(x) for x in symbols})
+    if len(symbols) < 10:
+        raise ValueError("Backtests need at least 10 tickers so the 'own everything' baseline means something.")
 
     def load():
-        data = bulk_history(sorted(set(symbols) | {"SPY"}), "2y")
-        spy = data.get("SPY")
-        if spy is None:
+        data = bulk_history(sorted(set(symbols) | {"SPY"}), "5y")
+        if "SPY" not in data:
             raise ValueError("Couldn't load SPY for the benchmark.")
-        stocks = {s: d for s, d in data.items() if s != "SPY"}
-        dates = spy.index
-        picks = []
-        for t in range(260, len(dates) - FWD, STEP):
-            t0, t1 = dates[t], dates[t + FWD]
-            sliced = {s: d.loc[:t0] for s, d in stocks.items() if len(d.loc[:t0]) > 200}
-            res = BACKTESTABLE[kind](sliced, _rs_scores(sliced))
-            if kind == "momentum":
-                res = [r for r in res if r["days_ago"] == 0]
-            spy_ret = float(spy["Close"].loc[t1] / spy["Close"].loc[t0] - 1)
-            for r in res[:10]:
-                d = stocks[r["symbol"]]["Close"]
-                if t0 not in d.index or t1 not in d.index:
-                    continue
-                ret = float(d.loc[t1] / d.loc[t0] - 1)
-                picks.append({"date": str(t0.date()), "symbol": r["symbol"], "ret": ret, "excess": ret - spy_ret})
-        n = len(picks)
-        if not n:
-            return {"kind": kind, "supported": True, "picks": 0}
-        rets = pd.Series([p["ret"] for p in picks])
-        exc = pd.Series([p["excess"] for p in picks])
-        return {
-            "kind": kind, "supported": True, "picks": n, "periods": len({p["date"] for p in picks}),
-            "holding_days": FWD, "from": picks[0]["date"], "to": picks[-1]["date"],
-            "win_rate_pct": round(float((rets > 0).mean() * 100), 1),
-            "beat_spy_pct": round(float((exc > 0).mean() * 100), 1),
-            "avg_return_pct": round(float(rets.mean() * 100), 2),
-            "median_return_pct": round(float(rets.median() * 100), 2),
-            "avg_excess_pct": round(float(exc.mean() * 100), 2),
-            "worst_pct": round(float(rets.min() * 100), 2), "best_pct": round(float(rets.max() * 100), 2),
-            "recent": sorted(picks, key=lambda p: p["date"], reverse=True)[:12],
-        }
+        return strategies.backtest(kind, data)
     return _cached(("bt", kind, tuple(symbols)), load, ttl=12 * 3600)
 
 
@@ -442,3 +420,49 @@ def holding_info(symbol):
     rate = i.get("dividendRate") or i.get("trailingAnnualDividendRate") or 0
     return {"name": i.get("shortName"), "sector": i.get("sector") or ("ETF" if i.get("quoteType") == "ETF" else "Other"),
             "dividend_rate": _clean(rate) or 0}
+
+
+# ---------------------------------------------------------------- charts & watchlist
+
+_CHART_BARS = {"3mo": 63, "6mo": 126, "1y": 252, "2y": 504}
+
+
+def chart(symbol, period="1y"):
+    """Daily bars plus 20/50/200-day averages (averages use the full history, then get sliced)."""
+    symbol = clean_symbol(symbol)
+    if period not in _CHART_BARS:
+        raise ValueError("Period must be one of 3mo, 6mo, 1y, 2y.")
+    df = history(symbol, "2y")
+    c = df["Close"]
+    ma = {n: c.rolling(n).mean() for n in (20, 50, 200)}
+    d = df.tail(_CHART_BARS[period])
+    r = lambda x: None if pd.isna(x) else round(float(x), 2)  # noqa: E731
+    return {"symbol": symbol, "period": period, "bars": [
+        {"t": str(i.date()), "o": r(row.Open), "h": r(row.High), "l": r(row.Low), "c": r(row.Close),
+         "v": int(row.Volume or 0), "ma20": r(ma[20].loc[i]), "ma50": r(ma[50].loc[i]), "ma200": r(ma[200].loc[i])}
+        for i, row in d.iterrows()]}
+
+
+def watch_signals(symbol):
+    """Per-stock signals that don't need a whole universe to rank against."""
+    df = history(symbol, "2y")
+    c, v, h = df["Close"], df["Volume"], df["High"]
+    price, prev = float(c.iloc[-1]), float(c.iloc[-2])
+    s50, s150, s200 = (c.rolling(n).mean() for n in (50, 150, 200))
+    diff = c.diff()
+    up = diff.clip(lower=0).ewm(alpha=0.5, adjust=False).mean()
+    dn = (-diff.clip(upper=0)).ewm(alpha=0.5, adjust=False).mean()
+    rsi2 = float((100 - 100 / (1 + up / dn.replace(0, float("nan")))).iloc[-1])
+    hi = float(h.tail(252).max())
+    has200 = len(c) >= 220
+    flags = {
+        "uptrend": bool(has200 and price > s50.iloc[-1] > s150.iloc[-1] > s200.iloc[-1] and s200.iloc[-1] > s200.iloc[-22]),
+        "near_high": price >= 0.95 * hi,
+        "pullback": bool(has200 and price > s200.iloc[-1] and rsi2 < 10),
+        "burst": price / prev - 1 >= 0.04 and v.iloc[-1] > v.iloc[-2],
+    }
+    mom = float(c.iloc[-22] / c.iloc[-253] - 1) * 100 if len(c) > 253 else None
+    return {"price": round(price, 2), "change_pct": round((price / prev - 1) * 100, 2),
+            "from_high_pct": round((price / hi - 1) * 100, 1), "mom_12_1_pct": round(mom, 1) if mom is not None else None,
+            "rsi2": None if math.isnan(rsi2) else round(rsi2, 1), "flags": flags, "as_of": str(df.index[-1].date()),
+            "spark": [round(float(x), 2) for x in c.tail(60)]}

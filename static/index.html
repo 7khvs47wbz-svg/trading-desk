@@ -2,8 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#020617">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Trading Desk">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
 <meta name="description" content="Paper-trading desk with market posture, stock screens, position sizing and a trade journal. Not financial advice.">
 <title>Trading Desk</title>
 <script>try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
@@ -36,6 +44,11 @@
   <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
   <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
 </svg>
 
 <!-- SIGN IN -->
@@ -61,12 +74,13 @@
 <header>
   <div class="brand"><span class="logo" aria-hidden="true"><svg class="i"><use href="#i-trend"/></svg></span>Trading Desk</div>
   <nav id="tabs" role="tablist" aria-label="Sections">
-    <button role="tab" data-tab="cockpit" aria-selected="true"><svg class="i" aria-hidden="true"><use href="#i-gauge"/></svg>Cockpit</button>
-    <button role="tab" data-tab="screener" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-filter"/></svg>Screener</button>
-    <button role="tab" data-tab="paper" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-trend"/></svg>Paper Trading</button>
-    <button role="tab" data-tab="portfolio" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-pie"/></svg>Portfolio</button>
-    <button role="tab" data-tab="journal" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-book"/></svg>Journal</button>
-    <button role="tab" data-tab="tools" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-sliders"/></svg>Sizer &amp; Settings</button>
+    <button role="tab" data-tab="cockpit" aria-selected="true"><svg class="i" aria-hidden="true"><use href="#i-gauge"/></svg><span class="lbl">Cockpit</span></button>
+    <button role="tab" data-tab="screener" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-filter"/></svg><span class="lbl">Screener</span></button>
+    <button role="tab" data-tab="watchlist" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-eye"/></svg><span class="lbl">Watchlist</span></button>
+    <button role="tab" data-tab="paper" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-trend"/></svg><span class="lbl">Paper<span class="long"> Trading</span></span></button>
+    <button role="tab" data-tab="portfolio" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-pie"/></svg><span class="lbl">Portfolio</span></button>
+    <button role="tab" data-tab="journal" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-book"/></svg><span class="lbl">Journal</span></button>
+    <button role="tab" data-tab="tools" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-sliders"/></svg><span class="lbl">Sizer<span class="long"> &amp; Settings</span></span></button>
   </nav>
   <button id="theme-toggle" class="theme-btn" aria-label="Switch to light theme"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg></button>
   <button id="logout" class="theme-btn" aria-label="Sign out" title="Sign out"><svg class="i" aria-hidden="true"><use href="#i-logout"/></svg></button>
@@ -79,6 +93,17 @@
   <div class="row between wrap">
     <h2>Daily market check</h2>
     <button id="regime-refresh"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh from public data</button>
+  </div>
+  <div id="guide" class="panel guide" hidden>
+    <div class="row between"><h3 style="margin:0"><svg class="i" aria-hidden="true"><use href="#i-bulb"/></svg> Getting started</h3>
+      <button class="small ghost" id="guide-close">Hide</button></div>
+    <ol class="steps">
+      <li data-step="market"><b>Check the market.</b> This page says whether it's a good time to take new risk (Posture and Exposure ceiling).</li>
+      <li data-step="screen"><b>Find ideas.</b> In <a href="#screener">Screener</a>, run a screen, and press “How has this screen done?” to see its 5-year track record.</li>
+      <li data-step="watch"><b>Watch them.</b> Star a stock to add it to your <a href="#watchlist">Watchlist</a>, and click any ticker to open its chart.</li>
+      <li data-step="trade"><b>Practise.</b> “Paper trade” sizes the position from your stop and runs the discipline check. It's $100,000 of pretend money.</li>
+      <li data-step="review"><b>Learn.</b> Close trades and the <a href="#journal">Journal</a> shows what's working: by setup, by plan, by R.</li>
+    </ol>
   </div>
   <div id="posture" class="cards" aria-live="polite"></div>
   <div class="grid2">
@@ -98,8 +123,10 @@
     <div class="form">
       <label>Screen
         <select id="screen-kind">
-          <option value="vcp">Trend template + VCP (vcp-screener)</option>
-          <option value="momentum">Momentum burst (stockbee)</option>
+          <option value="leaders">Momentum leaders, 12-1 (20-day hold)</option>
+          <option value="vcp">Trend template + VCP (vcp-screener, 20-day hold)</option>
+          <option value="momentum">Momentum burst (stockbee, 20-day hold)</option>
+          <option value="pullback">Uptrend pullback, RSI-2 (5-day hold)</option>
           <option value="canslim">CANSLIM lite (canslim-screener)</option>
           <option value="value">Value + dividend (value-dividend-screener)</option>
           <option value="fmp_vcp" id="fmp-opt">Full VCP screener via FMP API</option>
@@ -112,9 +139,21 @@
       <button id="screen-bt"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>How has this screen done?</button>
     </div>
   </div>
+  <p class="muted small" id="screen-desc"></p>
   <div id="bt-result" aria-live="polite"></div>
   <p class="muted small" id="screen-note" aria-live="polite"></p>
   <div id="screen-results"></div>
+</section>
+
+<!-- WATCHLIST -->
+<section id="watchlist" class="tab" role="tabpanel">
+  <div class="row between wrap">
+    <h2 style="margin:0">Watchlist</h2>
+    <div class="row"><input id="wl-symbol" placeholder="Add ticker, e.g. MSFT" autocapitalize="characters" autocomplete="off" aria-label="Ticker to add" style="width:180px">
+      <button id="wl-add" class="primary"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Add</button></div>
+  </div>
+  <p class="muted small">Signals update from daily prices. <b>Uptrend</b>: price above rising 50/150/200-day averages. <b>Near high</b>: within 5% of the 52-week high. <b>Pullback</b>: 2-day RSI under 10 while above the 200-day. <b>Burst</b>: up 4%+ today on rising volume.</p>
+  <div id="wl-board" class="watch-grid" aria-live="polite"></div>
 </section>
 
 <!-- PAPER -->
@@ -175,6 +214,16 @@
 <section id="journal" class="tab" role="tabpanel">
   <h2>Journal</h2>
   <div id="jr-stats" class="cards"></div>
+  <div class="panel">
+    <h3><svg class="i" aria-hidden="true"><use href="#i-bulb"/></svg> Trade review <span class="muted small">what's working and what isn't</span></h3>
+    <div id="rv-insights"></div>
+    <div class="grid2" style="margin:var(--sp-3) 0 0">
+      <div><h4>By setup</h4><div id="rv-setup" class="scroll"></div>
+        <h4 style="margin-top:var(--sp-4)">Discipline</h4><div id="rv-disc" class="scroll"></div></div>
+      <div><h4>Results in R <span class="muted small">profit ÷ planned risk</span></h4><div class="chart-box sm"><canvas id="rv-r" role="img" aria-label="Number of trades by R-multiple"></canvas></div>
+        <h4 style="margin-top:var(--sp-4)">Biggest losses</h4><div id="rv-losses" class="scroll"></div></div>
+    </div>
+  </div>
   <div class="grid2">
     <div class="panel"><h3>Cumulative P&amp;L</h3><div class="chart-box"><canvas id="jr-chart" role="img" aria-label="Cumulative realized profit and loss"></canvas></div></div>
     <div class="panel"><h3>Weekly digest <span class="muted small">weekly-performance-digest</span></h3><div id="jr-weekly" class="scroll"></div></div>
@@ -251,6 +300,24 @@
   </div>
 </section>
 </main>
+<dialog id="chart-dlg" aria-labelledby="cd-title">
+  <div class="dlg-head">
+    <div><h3 id="cd-title" style="margin:0">—</h3><div id="cd-sub" class="muted small"></div></div>
+    <div class="row">
+      <div class="seg seg-sm" role="group" aria-label="Chart period">
+        <button data-p="3mo">3M</button><button data-p="6mo">6M</button><button data-p="1y" aria-pressed="true">1Y</button><button data-p="2y">2Y</button>
+      </div>
+      <button id="cd-close" class="icon" aria-label="Close chart"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+  </div>
+  <div class="chart-box xl"><canvas id="cd-price" role="img" aria-label="Price chart with moving averages"></canvas></div>
+  <div class="chart-box vol"><canvas id="cd-vol" role="img" aria-label="Daily volume"></canvas></div>
+  <div class="row wrap" style="margin-top:var(--sp-3)">
+    <button id="cd-watch"><svg class="i" aria-hidden="true"><use href="#i-star"/></svg><span>Watch</span></button>
+    <button id="cd-trade" class="primary">Paper trade</button>
+    <span id="cd-legend" class="muted small"></span>
+  </div>
+</dialog>
 <div id="toast" role="status" aria-live="polite"></div>
 <script src="app.js"></script>
 </body>

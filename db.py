@@ -56,6 +56,9 @@ CREATE TABLE IF NOT EXISTS journal (
 CREATE TABLE IF NOT EXISTS holdings (
   id {PK}, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   symbol TEXT, shares REAL, cost_basis REAL, account TEXT, UNIQUE (user_id, symbol));
+CREATE TABLE IF NOT EXISTS watchlist (
+  id {PK}, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  symbol TEXT NOT NULL, note TEXT, added_at TEXT, UNIQUE (user_id, symbol));
 CREATE INDEX IF NOT EXISTS ix_pos_user ON paper_positions(user_id);
 CREATE INDEX IF NOT EXISTS ix_ord_user ON paper_orders(user_id);
 CREATE INDEX IF NOT EXISTS ix_jr_user ON journal(user_id);

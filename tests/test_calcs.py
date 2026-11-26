@@ -112,17 +112,54 @@ def test_circuit_breaker_streak_cooldown():
 
 def test_backtest_forward_return_is_hand_checkable():
     syms = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "AVGO", "LLY", "JPM", "V", "MA", "COST"]
-    bt = market.backtest("vcp", syms)
+    bt = market.backtest("leaders", syms)
     assert bt["supported"] and bt["picks"] > 0
-    data = market.bulk_history(sorted(set(syms) | {"SPY"}), "2y")
+    data = market.bulk_history(sorted(set(syms) | {"SPY"}), "5y")
     p = bt["recent"][0]
-    c = data[p["symbol"]]["Close"]
-    t0 = c.index.get_loc(pd.Timestamp(p["date"]))
     spy = data["SPY"]["Close"]
-    t1_date = spy.index[spy.index.get_loc(pd.Timestamp(p["date"])) + market.FWD]
-    assert p["ret"] == pytest.approx(c.loc[t1_date] / c.iloc[t0] - 1, rel=1e-9)
+    t0 = spy.index.get_loc(pd.Timestamp(p["date"]))
+    t1_date = spy.index[t0 + bt["holding_days"]]
+    c = data[p["symbol"]]["Close"]
+    assert p["ret"] == pytest.approx(c.loc[t1_date] / c.loc[pd.Timestamp(p["date"])] - 1, rel=1e-9)
     assert t1_date > pd.Timestamp(p["date"])  # the return is measured strictly after the signal
 
 
 def test_fundamental_screens_refuse_fake_backtests():
     assert market.backtest("value", ["KO"])["supported"] is False
+
+
+# ------------------------------------------------------------- trade review
+
+def _t(setup, pnl, r, days, gate="GO", over=0, plan=None, reason="target"):
+    opened = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    return {"setup": setup, "pnl": pnl, "r_multiple": r, "gate_decision": gate, "overridden": over,
+            "followed_plan": plan, "exit_reason": reason, "symbol": "X", "lessons": None,
+            "opened_at": opened.isoformat(), "closed_at": (opened + timedelta(days=days)).isoformat()}
+
+
+def test_trade_review_numbers_and_insights():
+    trades = [_t("VCP", 300, 1.5, 4, plan=1), _t("VCP", 200, 1.0, 6, plan=1), _t("VCP", -100, -0.5, 10, plan=1),
+              _t("Burst", -200, -1.0, 12, over=1, gate="NO_GO", plan=0), _t("Burst", -400, -2.0, 14, over=1, gate="NO_GO", plan=0),
+              _t("Burst", 50, 0.25, 3, plan=1, reason="manual")]
+    v = appmod.trade_review(trades)
+    assert v["trades"] == 6
+    vcp = next(r for r in v["by_setup"] if r["setup"] == "VCP")
+    assert vcp == {"setup": "VCP", "trades": 3, "win_rate_pct": 66.7, "avg_pnl": 133.33, "net_pnl": 400, "avg_r": 0.67}
+    assert v["gate"]["overridden"]["avg_pnl"] == -300 and v["gate"]["followed"]["avg_pnl"] == 112.5
+    assert v["plan"]["broken"]["trades"] == 2
+    assert [b["count"] for b in v["r_buckets"]] == [0, 1, 2, 1, 2, 0]
+    assert v["hold_days"] == {"winners": 4.3, "losers": 12.0}
+    text = " ".join(v["insights"])
+    assert "overrode the discipline gate averaged −$300.00" in text
+    assert "lost more than 1R" in text and "held losers 12.0 days" in text
+    assert v["biggest_losses"][0]["pnl"] == -400
+
+
+def test_trade_review_empty():
+    assert appmod.trade_review([])["trades"] == 0
+
+
+def test_break_even_trades_are_not_losses():
+    v = appmod.trade_review([_t("A", 0, 0.0, 1), _t("A", 0, 0.0, 2), _t("A", 0, 0.0, 3)])
+    assert v["biggest_losses"] == [] and v["hold_days"]["losers"] is None
+    assert "break-even so far" in " ".join(v["insights"])
