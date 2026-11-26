@@ -251,31 +251,66 @@ $("#screen-run").onclick = (ev) => busy(ev.target, async () => {
   } catch (e) { $("#screen-results").innerHTML = ""; throw e; }
 });
 const btHalf = (h, label) => h && h.periods ? `<tr><th scope="row">${label}<div class="muted small">${esc(h.from)} → ${esc(h.to)}</div></th><td class="num">${h.periods}</td><td class="num ${cls(h.avg_return_pct)}">${pct(h.avg_return_pct)}</td><td class="num ${cls(h.avg_vs_spy_pct)}">${pct(h.avg_vs_spy_pct)}</td><td class="num ${cls(h.avg_vs_all_pct)}"><b>${pct(h.avg_vs_all_pct)}</b></td><td class="num">${fmt(h.basket_beat_spy_pct, 0)}%</td><td class="num">${fmt(h.pick_win_rate_pct, 0)}%</td></tr>` : "";
+function renderBacktest(b) {
+  if (b.supported === false) { $("#bt-result").innerHTML = notice("warn", `<b>No backtest for this screen.</b> ${esc(b.reason || "")}`); return; }
+  if (!b.picks) { $("#bt-result").innerHTML = notice("warn", "The screen picked nothing over the test period, so there is nothing to measure."); return; }
+  const o = b.overall, last = b.curve.at(-1) || {}, cost = b.cost_per_side_pct || 0, cov = b.coverage;
+  const listWord = b.point_in_time ? "every stock in the S&P 500 that day" : "every stock in your list";
+  $("#bt-result").innerHTML = `<div class="panel"><div class="row between wrap"><h3 style="margin:0">5-year track record: ${esc(b.name)}</h3><span class="badge ${b.point_in_time ? "b-good" : "b-warn"}">${icon(b.point_in_time ? "check" : "alert")}${esc(b.universe_label || "")}</span></div>
+    <p class="muted small">Every ${b.step_days} trading days the screen picked its top ${b.top_n} using only data known that day; the basket was held ${b.holding_days} trading days, paying <b>${fmt(cost, 2)}% on each buy and each sell</b>. It's compared with SPY and with <b>owning ${listWord}</b>.${b.point_in_time ? " Stocks that later left the index (acquired, shrank, went bust) are included, so the test isn't only today's winners." : " Your list is today's companies, so it has a head start (survivorship bias): prefer the S&amp;P 500 test."}${b.refreshing ? " Refreshing with newer data in the background." : ""}</p>
+    <div class="cards">${card("Average basket return", pct(o.avg_return_pct), `per ${b.holding_days}-day hold after costs · ${fmt(o.avg_return_gross_pct)}% before`, cls(o.avg_return_pct))}${card("Edge vs own-everything", pct(o.avg_vs_all_pct), "per hold after costs, the real test", cls(o.avg_vs_all_pct))}${card("Basket beat SPY", fmt(o.basket_beat_spy_pct, 0) + "%", "of holding periods")}${card("Picks that rose", fmt(o.pick_win_rate_pct, 0) + "%", "of individual stocks picked")}${card("$1 grew to", "$" + fmt(last.screen), `SPY $${fmt(last.spy)} · all stocks $${fmt(last.all)}`)}${cov ? card("Price data found", fmt(cov.mean_pct, 1) + "%", `of index members on average (lowest ${fmt(cov.min_pct, 1)}%). The rest are mostly delisted companies with no free price history.`) : ""}</div>
+    <div class="chart-box"><canvas id="bt-chart" role="img" aria-label="Growth of one dollar: screen versus SPY versus owning every stock"></canvas></div>
+    <h4 style="margin-top:var(--sp-4)">Did it hold up on data it wasn't tuned on?</h4>
+    <div class="scroll"><table><thead><tr><th scope="col">Period</th><th class="num" scope="col">Holds</th><th class="num" scope="col">Avg return</th><th class="num" scope="col">vs SPY</th><th class="num" scope="col">vs all stocks</th><th class="num" scope="col">Beat SPY</th><th class="num" scope="col">Picks up</th></tr></thead><tbody>${btHalf(b.older, "Older half")}${btHalf(b.newer, "Newer half")}</tbody></table></div>
+    ${notice(b.holds_up ? "good" : "warn", b.holds_up ? `<b>Edge held up in both halves, after costs.</b> The screen beat owning ${listWord} in the older and the newer half. That's evidence, not a guarantee: the live track record below is the real check.` : `<b>No consistent edge after costs.</b> The screen didn't beat owning ${listWord} in both halves. Treat its picks as ideas to research, not signals.`)}
+    <details><summary>Most recent picks</summary><div class="scroll">${table([{ h: "Date", k: "date" }, { h: "Symbol", k: "symbol" }, { h: `${b.holding_days}-day return`, num: 1, f: (r) => pct(r.ret * 100), cls: (r) => cls(r.ret) }, { h: "vs SPY", num: 1, f: (r) => pct(r.excess * 100), cls: (r) => cls(r.excess) }], b.recent)}</div></details></div>`;
+  drawChart("bt-chart", { type: "line", data: { labels: b.curve.map((x) => x.t), datasets: [
+    { label: b.name + " (after costs)", data: b.curve.map((x) => x.screen), borderColor: css("--gain"), pointRadius: 0, borderWidth: 2, area: true },
+    { label: "SPY", data: b.curve.map((x) => x.spy), borderColor: css("--info"), pointRadius: 0, borderWidth: 1.5 },
+    { label: b.point_in_time ? "Own every S&P 500 stock" : "Own every stock in the list", data: b.curve.map((x) => x.all), borderColor: css("--muted"), borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }] },
+    options: { plugins: { legend: { position: "bottom", labels: { boxHeight: 2 } } }, scales: { y: { ticks: { callback: (v) => "$" + v } } } } });
+}
+let btPoll = 0;
 $("#screen-bt").onclick = (ev) => busy(ev.target, async () => {
-  const kind = $("#screen-kind").value;
-  $("#bt-result").innerHTML = `<div class="panel">${skeleton("Replaying the screen every 5 trading days over 5 years, using only the data known on each day. The first run takes up to a minute…")}</div>`;
+  const kind = $("#screen-kind").value, mode = $("#bt-universe").value, my = ++btPoll;
+  $("#bt-result").innerHTML = `<div class="panel">${skeleton("Replaying the screen every 5 trading days over 5 years, using only the data known on each day…")}</div>`;
   try {
-    const b = await api("/backtest", { kind, universe: $("#screen-universe").value });
-    if (!b.supported) { $("#bt-result").innerHTML = notice("warn", `<b>No backtest for this screen.</b> ${esc(b.reason || "")}`); return; }
-    if (!b.picks) { $("#bt-result").innerHTML = notice("warn", "The screen picked nothing over the test period on this universe, so there is nothing to measure."); return; }
-    const o = b.overall, last = b.curve.at(-1) || {};
-    $("#bt-result").innerHTML = `<div class="panel"><h3>5-year track record: ${esc(b.name)}</h3>
-      <p class="muted small">Every ${b.step_days} trading days the screen picked its top ${b.top_n} using only data known that day; the basket was held ${b.holding_days} trading days. It's compared with SPY and with <b>owning every stock in the list</b>, which strips out the head start of a list made of today's big winners. No costs or slippage.</p>
-      <div class="cards">${card("Average basket return", pct(o.avg_return_pct), `per ${b.holding_days}-day hold`, cls(o.avg_return_pct))}${card("Edge vs own-everything", pct(o.avg_vs_all_pct), "per hold, the real test", cls(o.avg_vs_all_pct))}${card("Basket beat SPY", fmt(o.basket_beat_spy_pct, 0) + "%", "of holding periods")}${card("Picks that rose", fmt(o.pick_win_rate_pct, 0) + "%", "of individual stocks picked")}${card("$1 grew to", "$" + fmt(last.screen), `SPY $${fmt(last.spy)} · all stocks $${fmt(last.all)}`)}</div>
-      <div class="chart-box"><canvas id="bt-chart" role="img" aria-label="Growth of one dollar: screen versus SPY versus owning every stock"></canvas></div>
-      <h4 style="margin-top:var(--sp-4)">Did it hold up on data it wasn't tuned on?</h4>
-      <div class="scroll"><table><thead><tr><th scope="col">Period</th><th class="num" scope="col">Holds</th><th class="num" scope="col">Avg return</th><th class="num" scope="col">vs SPY</th><th class="num" scope="col">vs all stocks</th><th class="num" scope="col">Beat SPY</th><th class="num" scope="col">Picks up</th></tr></thead><tbody>${btHalf(b.older, "Older half")}${btHalf(b.newer, "Newer half")}</tbody></table></div>
-      ${notice(b.holds_up ? "good" : "warn", b.holds_up ? "<b>Edge held up in both halves.</b> The screen beat owning every stock in the list in the older and the newer half of the data. That's evidence, not a guarantee: past results don't promise future ones, and the list itself is today's large companies." : "<b>No consistent edge.</b> The screen didn't beat owning every stock in the list in both halves. Treat its picks as ideas to research, not signals.")}
-      <details><summary>Most recent picks</summary><div class="scroll">${table([{ h: "Date", k: "date" }, { h: "Symbol", k: "symbol" }, { h: `${b.holding_days}-day return`, num: 1, f: (r) => pct(r.ret * 100), cls: (r) => cls(r.ret) }, { h: "vs SPY", num: 1, f: (r) => pct(r.excess * 100), cls: (r) => cls(r.excess) }], b.recent)}</div></details></div>`;
-    drawChart("bt-chart", { type: "line", data: { labels: b.curve.map((x) => x.t), datasets: [
-      { label: b.name, data: b.curve.map((x) => x.screen), borderColor: css("--gain"), pointRadius: 0, borderWidth: 2, area: true },
-      { label: "SPY", data: b.curve.map((x) => x.spy), borderColor: css("--info"), pointRadius: 0, borderWidth: 1.5 },
-      { label: "Own every stock", data: b.curve.map((x) => x.all), borderColor: css("--muted"), borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }] },
-      options: { plugins: { legend: { position: "bottom", labels: { boxHeight: 2 } } }, scales: { y: { ticks: { callback: (v) => "$" + v } } } } });
+    for (;;) {
+      const b = await api("/backtest", { kind, universe_mode: mode, universe: $("#screen-universe").value });
+      if (my !== btPoll) return;  // a newer request replaced this one
+      if (b.status === "error") throw new Error(b.error || "The backtest failed. Try again in a few minutes.");
+      if (b.status === "running") {
+        $("#bt-result").innerHTML = `<div class="panel">${skeleton(`${b.message || "Working…"} (${b.elapsed_s || 0}s so far)`)}</div>`;
+        await new Promise((r) => setTimeout(r, 5000));
+        continue;
+      }
+      renderBacktest(b);
+      loadForward();
+      return;
+    }
   } catch (e) { $("#bt-result").innerHTML = ""; throw e; }
 });
+
+// ---------------------------------------------------------------- live forward test
+async function loadForward() {
+  const kind = $("#screen-kind").value;
+  if (!["leaders", "vcp", "momentum", "pullback"].includes(kind)) { $("#fw-result").innerHTML = ""; return; }
+  try {
+    const f = await api(`/forward?kind=${kind}`);
+    if (kind !== $("#screen-kind").value) return;
+    const st = f.stats;
+    const head = `<div class="row between wrap"><h3 style="margin:0"><span class="live-dot" aria-hidden="true"></span>Live track record: ${esc(f.name)}</h3><span class="muted small">${f.started ? `Recording since ${esc(f.started)} · ${f.days_recorded} trading days` : "Not started yet"}</span></div>
+      <p class="muted small">Each trading day the app saves this screen's top ${f.top_n} picks from the S&amp;P 500 <b>before</b> anyone knows how they'll do, then scores them after ${f.holding_days} trading days, after ${fmt(f.cost_per_side_pct, 2)}% costs each way. No hindsight and no survivorship: this is the honest check on the backtest.</p>`;
+    const cards = st ? `<div class="cards">${card("Scored picks", st.picks, `${st.days} days · ${f.pending} still open`)}${card("Average return", pct(st.avg_return_pct), `after costs · ${fmt(st.avg_return_gross_pct)}% before`, cls(st.avg_return_pct))}${card("vs SPY", pct(st.avg_vs_spy_pct), "per pick", cls(st.avg_vs_spy_pct))}${card("vs all S&P 500", pct(st.avg_vs_all_pct), "per pick, the real test", cls(st.avg_vs_all_pct))}${card("Picks that rose", fmt(st.win_rate_pct, 0) + "%", `${fmt(st.beat_spy_pct, 0)}% beat SPY`)}</div>`
+      : notice("warn", `${esc(f.message || "No results yet.")}${f.picks_recorded ? ` ${f.picks_recorded} picks recorded so far, ${f.pending} waiting.` : ""} It takes a few months of scored picks before the record means much.`);
+    const rows = f.recent.length ? `<details ${st ? "" : "open"}><summary>Recorded picks</summary><div class="scroll">${table([{ h: "Picked", k: "date" }, { h: "Symbol", k: "symbol" }, { h: "#", k: "rank", num: 1 }, { h: "Entry", num: 1, f: (r) => fmt(r.entry) }, { h: "Status", f: (r) => `<span class="badge ${r.status === "done" ? "b-good" : "b-warn"}">${r.status === "done" ? "scored" : "open"}</span>` }, { h: "Return", num: 1, f: (r) => pct(r.ret_pct), cls: (r) => cls(r.ret_pct) }, { h: "vs SPY", num: 1, f: (r) => pct(r.vs_spy_pct), cls: (r) => cls(r.vs_spy_pct) }], f.recent)}</div></details>` : "";
+    $("#fw-result").innerHTML = `<div class="panel">${head}${cards}${rows}</div>`;
+  } catch (e) { $("#fw-result").innerHTML = ""; }
+}
+loaders.screener = () => loadForward();
 const showDesc = () => { $("#screen-desc").textContent = screenDesc[$("#screen-kind").value] || ""; };
-$("#screen-kind").onchange = () => { $("#bt-result").innerHTML = ""; showDesc(); };
+$("#screen-kind").onchange = () => { btPoll++; $("#bt-result").innerHTML = ""; showDesc(); loadForward(); };
+$("#bt-universe").onchange = () => { btPoll++; $("#bt-result").innerHTML = ""; };
 showDesc();
 window.tradeFrom = (sym, stop, target, setup) => {
   if ($("#chart-dlg").open) $("#chart-dlg").close();
@@ -474,10 +509,16 @@ $("#ps-run").onclick = (ev) => busy(ev.target, async () => {
 loaders.tools = async () => {
   const s = await api("/settings");
   $("#st-risk").value = s.risk_pct; $("#st-max").value = s.max_position_pct; $("#st-universe").value = s.universe;
+  $("#st-cost").value = s.cost_bps_per_side != null ? +(s.cost_bps_per_side / 100).toFixed(3) : 0.1;
   $("#acct-email").textContent = s.email;
   $("#st-info").textContent = `Price cross-check limit: ${s.max_deviation_pct}% · FMP API: ${s.fmp_enabled ? "enabled" : "not configured"}`;
 };
-$("#st-save").onclick = (ev) => busy(ev.target, async () => { await api("/settings", { risk_pct: Number($("#st-risk").value), max_position_pct: Number($("#st-max").value), universe: $("#st-universe").value }); toast("Settings saved"); });
+$("#st-save").onclick = (ev) => busy(ev.target, async () => {
+  const costPct = Number($("#st-cost").value);
+  if (!(costPct >= 0 && costPct <= 1)) { $("#st-cost").focus(); throw new Error("Trading cost must be between 0% and 1% per side."); }
+  await api("/settings", { risk_pct: Number($("#st-risk").value), max_position_pct: Number($("#st-max").value), universe: $("#st-universe").value, cost_bps_per_side: Math.round(costPct * 10000) / 100 });
+  toast("Settings saved. Backtests and the live record now use the new cost.");
+});
 
 // ---------------------------------------------------------------- account
 $("#pw-save").onclick = (ev) => busy(ev.target, async () => {
@@ -513,7 +554,7 @@ function showAuth() {
   watched.clear();
   Object.values(charts).forEach((c) => c.destroy());
   for (const k in charts) delete charts[k];
-  ["#wl-board", "#rv-insights", "#rv-setup", "#rv-disc", "#rv-losses", "#posture", "#breadth", "#uptrend", "#circuit", "#screen-results", "#bt-result", "#pt-result", "#paper-summary", "#pt-positions", "#pt-orders", "#pf-summary", "#pf-table", "#pf-warnings", "#jr-stats", "#jr-weekly", "#jr-table", "#ps-result"].forEach((id) => { const el = $(id); if (el) el.innerHTML = ""; });
+  ["#fw-result", "#wl-board", "#rv-insights", "#rv-setup", "#rv-disc", "#rv-losses", "#posture", "#breadth", "#uptrend", "#circuit", "#screen-results", "#bt-result", "#pt-result", "#paper-summary", "#pt-positions", "#pt-orders", "#pf-summary", "#pf-table", "#pf-warnings", "#jr-stats", "#jr-weekly", "#jr-table", "#ps-result"].forEach((id) => { const el = $(id); if (el) el.innerHTML = ""; });
   setTimeout(() => $("#auth-email").focus(), 0);
 }
 $("#auth-form").onsubmit = (ev) => {
