@@ -20,8 +20,11 @@ Each person signs up with an email and password and gets a private paper account
   (5 for the pullback screen), and is compared with SPY **and** with owning every stock in the
   list. That second baseline matters because a list of today's large companies beats SPY on its
   own (survivorship bias). The data is split in half and a screen must beat the baseline in both
-  halves. In the study all four did, by roughly +0.4% to +1.8% per holding period before costs.
-  Three other candidate rules failed on the newer half and were dropped. Each screen's own
+  halves. Momentum leaders and trend template + VCP passed in both the 6-year research window and
+  the app's own 5-year window (roughly +0.8% to +1.8% per 20-day hold over the baseline, before
+  costs). Momentum burst and uptrend pullback passed in the 6-year window but each failed one half
+  of the 5-year window, so the app labels them "no consistent edge": their edge depends on the
+  period tested. Three other candidate rules failed outright and were dropped. Each screen's own
   backtest is one click away in the app. Fundamental screens (CANSLIM, value-dividend) are not
   backtested because the free data has no point-in-time fundamentals. Past results don't
   guarantee future ones.
