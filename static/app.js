@@ -61,6 +61,55 @@ function spark(vals) {
   return `<svg class="spark ${vals.at(-1) >= vals[0] ? "pos" : "neg"}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}"/></svg>`;
 }
 
+// ---------------------------------------------------------------- motion
+const REDUCED = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+function rgba(hex, a) { const h = hex.replace("#", ""); if (h.length !== 6) return hex; const n = parseInt(h, 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+// Numbers in stat cards count up from zero, keeping their format ($, %, commas, decimals).
+function countUp(el) {
+  if (REDUCED() || el.dataset.counted) return;
+  el.dataset.counted = "1";
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const jobs = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const text = n.nodeValue;
+    if (!/\d/.test(text)) continue;
+    const parts = [];
+    let last = 0;
+    text.replace(/\d[\d,]*(\.\d+)?/g, (m, dec, i) => { parts.push(text.slice(last, i), { v: parseFloat(m.replace(/,/g, "")), d: dec ? dec.length - 1 : 0, comma: m.includes(",") }); last = i + m.length; return m; });
+    parts.push(text.slice(last));
+    jobs.push({ n, parts });
+  }
+  if (!jobs.length) return;
+  const t0 = performance.now(), dur = 750;
+  const fmtN = (p, k) => { const x = p.v * k; return p.comma || p.v >= 1000 ? x.toLocaleString(undefined, { minimumFractionDigits: p.d, maximumFractionDigits: p.d }) : x.toFixed(p.d); };
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+    for (const j of jobs) j.n.nodeValue = j.parts.map((p) => (typeof p === "string" ? p : fmtN(p, k === 1 ? 1 : e))).join("");
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+// New cards, panels and table rows rise in with a short stagger.
+const REVEAL = ".card, .wcard, .notice, tbody tr";
+function reveal(root) {
+  if (REDUCED()) return;
+  const groups = new Map();
+  root.querySelectorAll?.(REVEAL).forEach((el) => {
+    if (el.classList.contains("reveal")) return;
+    const p = el.parentElement;
+    const i = groups.get(p) || 0;
+    groups.set(p, i + 1);
+    el.style.setProperty("--i", i);
+    el.classList.add("reveal");
+  });
+  root.querySelectorAll?.(".card .v").forEach(countUp);
+}
+new MutationObserver((muts) => {
+  for (const m of muts) for (const n of m.addedNodes) if (n.nodeType === 1) {
+    if (n.matches?.(REVEAL)) reveal(n.parentElement || n); else reveal(n);
+  }
+}).observe(document.body, { childList: true, subtree: true });
+
 // ---------------------------------------------------------------- charts (theme-aware)
 const chartCfgs = {};
 function drawChart(id, cfg) {
@@ -69,7 +118,18 @@ function drawChart(id, cfg) {
   const text = css("--muted"), grid = css("--border-soft");
   cfg.options = cfg.options || {};
   cfg.options.maintainAspectRatio = false;
-  cfg.options.animation = matchMedia("(prefers-reduced-motion: reduce)").matches ? false : { duration: 250 };
+  cfg.options.animation = REDUCED() ? false : { duration: 800, easing: "easeOutQuart" };
+  for (const ds of cfg.data.datasets || []) if (ds.area && typeof ds.borderColor === "string") {
+    const col = ds.borderColor;
+    ds.fill = "start";
+    ds.backgroundColor = (ctx) => {
+      const { ctx: c, chartArea } = ctx.chart;
+      if (!chartArea) return "transparent";
+      const g = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+      g.addColorStop(0, rgba(col, 0.28)); g.addColorStop(1, rgba(col, 0));
+      return g;
+    };
+  }
   cfg.options.interaction = { mode: "index", intersect: false };
   if (cfg.type !== "doughnut") {
     cfg.options.scales = cfg.options.scales || {};
@@ -136,7 +196,7 @@ async function loadCockpit(refresh) {
   $("#breadth").innerHTML = analyzerPanel(r.breadth);
   $("#uptrend").innerHTML = analyzerPanel(r.uptrend);
   const h = (r.breadth?.trend_summary?.entries) || r.breadth_history || [];
-  drawChart("breadth-chart", { type: "line", data: { labels: h.map((x) => x.data_date), datasets: [{ label: "Breadth score", data: h.map((x) => x.composite_score), borderColor: css("--info"), backgroundColor: css("--info"), pointRadius: h.length > 30 ? 0 : 3, tension: .3 }] }, options: { scales: { y: { min: 0, max: 100 } }, plugins: { legend: { display: false } } } });
+  drawChart("breadth-chart", { type: "line", data: { labels: h.map((x) => x.data_date), datasets: [{ label: "Breadth score", data: h.map((x) => x.composite_score), borderColor: css("--info"), area: true, pointRadius: h.length > 30 ? 0 : 3, tension: .3 }] }, options: { scales: { y: { min: 0, max: 100 } }, plugins: { legend: { display: false } } } });
   $("#circuit").innerHTML = `<p>${badge(cb.recommendation)}</p><div class="scroll">` + table(
     [{ h: "Window", k: "w" }, { h: "Realized P&L", num: 1, f: (x) => pnl(x.v), cls: (x) => cls(x.v) }, { h: "Halt at", num: 1, k: "l" }],
     [{ w: "Today", v: cb.pnl_today, l: `−${cb.limits.daily}%` }, { w: "This week", v: cb.pnl_week, l: `−${cb.limits.weekly}%` }, { w: "This month", v: cb.pnl_month, l: `−${cb.limits.monthly}%` }]) +
@@ -144,7 +204,19 @@ async function loadCockpit(refresh) {
     (cb.triggered_rules.length ? notice("bad", `${cb.triggered_rules.map((x) => esc(x.rule.replace(/_/g, " "))).join(", ")} active`) : "");
   if (r.errors?.length) toast(r.errors.join("\n"), true);
 }
-loaders.cockpit = () => loadCockpit().catch((e) => toast(e.message, true));
+async function loadTape() {
+  try {
+    const r = await api("/watchlist");
+    const items = r.items.filter((i) => !i.error);
+    const tape = $("#tape");
+    if (!items.length) { tape.hidden = true; return; }
+    const one = items.map((i) => `<span class="tape-item">${symLink(i.symbol)}<span>${fmt(i.price)}</span><span class="${cls(i.change_pct)}">${pct(i.change_pct)}</span></span>`).join("");
+    tape.querySelector(".tape-track").innerHTML = one + `<span style="display:contents" aria-hidden="true">${one.replace(/<button/g, '<button tabindex="-1"')}</span>`;
+    tape.style.setProperty("--tape-dur", Math.max(20, items.length * 5) + "s");
+    tape.hidden = false;
+  } catch (e) { /* the tape is decoration; ignore */ }
+}
+loaders.cockpit = () => { loadTape(); return loadCockpit().catch((e) => toast(e.message, true)); };
 $("#regime-refresh").onclick = (ev) => busy(ev.target, () => loadCockpit(true));
 
 // ---------------------------------------------------------------- screener
@@ -196,7 +268,7 @@ $("#screen-bt").onclick = (ev) => busy(ev.target, async () => {
       ${notice(b.holds_up ? "good" : "warn", b.holds_up ? "<b>Edge held up in both halves.</b> The screen beat owning every stock in the list in the older and the newer half of the data. That's evidence, not a guarantee: past results don't promise future ones, and the list itself is today's large companies." : "<b>No consistent edge.</b> The screen didn't beat owning every stock in the list in both halves. Treat its picks as ideas to research, not signals.")}
       <details><summary>Most recent picks</summary><div class="scroll">${table([{ h: "Date", k: "date" }, { h: "Symbol", k: "symbol" }, { h: `${b.holding_days}-day return`, num: 1, f: (r) => pct(r.ret * 100), cls: (r) => cls(r.ret) }, { h: "vs SPY", num: 1, f: (r) => pct(r.excess * 100), cls: (r) => cls(r.excess) }], b.recent)}</div></details></div>`;
     drawChart("bt-chart", { type: "line", data: { labels: b.curve.map((x) => x.t), datasets: [
-      { label: b.name, data: b.curve.map((x) => x.screen), borderColor: css("--gain"), pointRadius: 0, borderWidth: 2 },
+      { label: b.name, data: b.curve.map((x) => x.screen), borderColor: css("--gain"), pointRadius: 0, borderWidth: 2, area: true },
       { label: "SPY", data: b.curve.map((x) => x.spy), borderColor: css("--info"), pointRadius: 0, borderWidth: 1.5 },
       { label: "Own every stock", data: b.curve.map((x) => x.all), borderColor: css("--muted"), borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }] },
       options: { plugins: { legend: { position: "bottom", labels: { boxHeight: 2 } } }, scales: { y: { ticks: { callback: (v) => "$" + v } } } } });
@@ -243,7 +315,7 @@ $("#pt-preview").onclick = (ev) => busy(ev.target, async () => {
       ${d !== "GO" ? `<label class="check full"><input type="checkbox" id="pt-override"> Override the gate (recorded in the journal)</label>` : ""}</div>
       <button class="primary" id="pt-buy">Place paper buy</button>
       <div class="chart-box sm" style="margin-top:var(--sp-4)"><canvas id="pt-chart" role="img" aria-label="${r.quote.symbol} closing price, last 6 months, with stop line"></canvas></div>`;
-    drawChart("pt-chart", { type: "line", data: { labels: r.quote.chart.map((x) => x.t), datasets: [{ label: "Close", data: r.quote.chart.map((x) => x.c), borderColor: css("--info"), pointRadius: 0, borderWidth: 2 }, { label: "Stop", data: r.quote.chart.map(() => r.stop), borderColor: css("--loss"), borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }] }, options: { plugins: { legend: { position: "bottom", labels: { boxHeight: 2 } } } } });
+    drawChart("pt-chart", { type: "line", data: { labels: r.quote.chart.map((x) => x.t), datasets: [{ label: "Close", data: r.quote.chart.map((x) => x.c), borderColor: css("--info"), pointRadius: 0, borderWidth: 2, area: true }, { label: "Stop", data: r.quote.chart.map(() => r.stop), borderColor: css("--loss"), borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }] }, options: { plugins: { legend: { position: "bottom", labels: { boxHeight: 2 } } } } });
     $("#pt-buy").onclick = (e2) => busy(e2.target, async () => {
       const shares = $("#pt-shares").value;
       const p = await api("/paper/buy", { symbol: r.quote.symbol, shares, stop: r.stop, target: $("#pt-target").value || null, setup: $("#pt-setup").value, thesis: $("#pt-thesis").value, gate_decision: d, override: $("#pt-override")?.checked });
@@ -285,7 +357,7 @@ function renderJournal(j) {
     card("Avg win / loss", `${money(s.avg_win)} / ${money(s.avg_loss)}`) + card("Profit factor", fmt(s.profit_factor)) +
     card("Expectancy / trade", pnl(s.expectancy), "", cls(s.expectancy)) + card("Net P&L", pnl(s.net_pnl), "", cls(s.net_pnl)) +
     card("Plan adherence", s.plan_adherence_pct != null ? s.plan_adherence_pct + "%" : "—", `${s.overrides} gate overrides`);
-  drawChart("jr-chart", { type: "line", data: { labels: j.curve.map((x) => x.t), datasets: [{ label: "Cumulative P&L", data: j.curve.map((x) => x.pnl), borderColor: css("--gain"), pointRadius: j.curve.length > 30 ? 0 : 3, tension: .2, segment: { borderColor: (c) => (c.p1.parsed.y < 0 ? css("--loss") : css("--gain")) } }] }, options: { plugins: { legend: { display: false } } } });
+  drawChart("jr-chart", { type: "line", data: { labels: j.curve.map((x) => x.t), datasets: [{ label: "Cumulative P&L", data: j.curve.map((x) => x.pnl), borderColor: css("--gain"), area: true, pointRadius: j.curve.length > 30 ? 0 : 3, tension: .2, segment: { borderColor: (c) => (c.p1.parsed.y < 0 ? css("--loss") : css("--gain")) } }] }, options: { plugins: { legend: { display: false } } } });
   $("#jr-weekly").innerHTML = table([{ h: "Week", k: "week" }, { h: "Trades", k: "trades", num: 1 }, { h: "Win rate", num: 1, f: (r) => fmt(r.wins / r.trades * 100, 0) + "%" }, { h: "P&L", num: 1, f: (r) => pnl(r.pnl), cls: (r) => cls(r.pnl) }], j.weekly, "Close a trade to start your weekly digest.");
   $("#jr-table").innerHTML = table([{ h: "Closed", f: (r) => `<span class="num">${(r.closed_at || "").slice(0, 10)}</span>` }, { h: "Symbol", k: "symbol" }, { h: "Source", k: "source" }, { h: "Setup", k: "setup" }, { h: "Entry", num: 1, f: (r) => fmt(r.entry) }, { h: "Exit", num: 1, f: (r) => fmt(r.exit) }, { h: "P&L", num: 1, f: (r) => pnl(r.pnl), cls: (r) => cls(r.pnl) }, { h: "R", num: 1, f: (r) => fmt(r.r_multiple) }, { h: "Exit reason", k: "exit_reason" }, { h: "Gate", f: (r) => (r.gate_decision ? badge(r.gate_decision) : "") + (r.overridden ? " <span class='muted small'>overridden</span>" : "") },
     { h: "Followed plan", f: (r) => `<select aria-label="Followed plan for ${r.symbol}" onchange="patchJ(${r.id},{followed_plan:this.value===''?null:Number(this.value)})"><option value="" ${r.followed_plan == null ? "selected" : ""}>—</option><option value="1" ${r.followed_plan === 1 ? "selected" : ""}>Yes</option><option value="0" ${r.followed_plan === 0 ? "selected" : ""}>No</option></select>` },
@@ -322,7 +394,7 @@ async function loadChart() {
     $("#cd-sub").innerHTML = `<span class="num">${fmt(last.c)}</span> · <span class="${cls(chg)}">${pct(chg)}</span> over ${periodLabel[cd.period]} · as of ${esc(last.t)}`;
     const flat = (v) => b.map(() => v);
     const ds = [
-      { label: "Close", data: b.map((x) => x.c), borderColor: css("--info"), pointRadius: 0, borderWidth: 2 },
+      { label: "Close", data: b.map((x) => x.c), borderColor: css("--info"), pointRadius: 0, borderWidth: 2, area: true },
       { label: "20-day", data: b.map((x) => x.ma20), borderColor: "#a78bfa", pointRadius: 0, borderWidth: 1.2 },
       { label: "50-day", data: b.map((x) => x.ma50), borderColor: css("--warn"), pointRadius: 0, borderWidth: 1.2 },
       { label: "200-day", data: b.map((x) => x.ma200), borderColor: css("--muted"), pointRadius: 0, borderWidth: 1.2 }];

@@ -17,11 +17,12 @@
 <script>try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="style.css?v=20261127c">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
+<div class="ambient" aria-hidden="true"><div class="glow g1"></div><div class="glow g2"></div><div class="glow g3"></div><div class="grid-bg"></div></div>
 <!-- Lucide-style icon sprite -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
@@ -53,21 +54,47 @@
 
 <!-- SIGN IN -->
 <div id="auth" hidden>
-  <div class="auth-card">
-    <div class="brand"><span class="logo" aria-hidden="true"><svg class="i"><use href="#i-trend"/></svg></span>Trading Desk</div>
-    <p class="muted">Practise trading with $100,000 of paper money. Market posture, stock screens, position sizing and a trade journal, built on the open-source claude-trading-skills.</p>
-    <div class="seg" role="tablist" aria-label="Account">
-      <button role="tab" id="auth-login-tab" aria-selected="true">Sign in</button>
-      <button role="tab" id="auth-signup-tab" aria-selected="false">Create account</button>
+  <div class="auth-wrap">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="brand"><span class="logo" aria-hidden="true"><svg class="i"><use href="#i-trend"/></svg></span>Trading Desk</div>
+      <h1 id="hero-title">Practise trading like a pro, <span class="grad">without risking a dollar.</span></h1>
+      <p class="lead">$100,000 of paper money, stock screens with honest 5-year track records, charts, a watchlist and a journal that tells you what's working.</p>
+      <div class="hero-chart" aria-hidden="true">
+        <svg viewBox="0 0 600 220" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="hg-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22c55e" stop-opacity=".35"/><stop offset="1" stop-color="#22c55e" stop-opacity="0"/></linearGradient>
+            <linearGradient id="hg-line" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#60a5fa"/><stop offset="1" stop-color="#22c55e"/></linearGradient>
+          </defs>
+          <g class="hc-grid"><line x1="0" y1="55" x2="600" y2="55"/><line x1="0" y1="110" x2="600" y2="110"/><line x1="0" y1="165" x2="600" y2="165"/></g>
+          <path class="hc-area" d="M0,190 L40,176 L80,182 L120,160 L160,166 L200,140 L240,148 L280,120 L320,128 L360,98 L400,106 L440,78 L480,84 L520,52 L560,60 L600,30 L600,220 L0,220Z" fill="url(#hg-fill)"/>
+          <path class="hc-line" pathLength="1" d="M0,190 L40,176 L80,182 L120,160 L160,166 L200,140 L240,148 L280,120 L320,128 L360,98 L400,106 L440,78 L480,84 L520,52 L560,60 L600,30" stroke="url(#hg-line)"/>
+          <circle class="hc-dot" cx="600" cy="30" r="6"/>
+        </svg>
+        <div class="chip c1"><svg class="i"><use href="#i-filter"/></svg>4 tested screens</div>
+        <div class="chip c2"><svg class="i"><use href="#i-shield"/></svg>2% price cross-check</div>
+        <div class="chip c3"><svg class="i"><use href="#i-book"/></svg>Trade review</div>
+      </div>
+      <ul class="features">
+        <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Every screen shows its 5-year backtest against SPY</li>
+        <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Position sizing and a discipline check before each trade</li>
+        <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Private account, delete it any time</li>
+      </ul>
+    </section>
+    <div class="auth-card">
+      <h2 class="auth-title">Welcome</h2>
+      <div class="seg" role="tablist" aria-label="Account">
+        <button role="tab" id="auth-login-tab" aria-selected="true">Sign in</button>
+        <button role="tab" id="auth-signup-tab" aria-selected="false">Create account</button>
+      </div>
+      <form id="auth-form" novalidate>
+        <label class="field">Email <input id="auth-email" type="email" autocomplete="email" required></label>
+        <label class="field">Password <input id="auth-pw" type="password" autocomplete="current-password" minlength="8" required>
+          <span class="hint" id="auth-pw-hint" hidden>At least 8 characters.</span></label>
+        <p id="auth-error" class="form-error" role="alert"></p>
+        <button class="primary wide" id="auth-submit" type="submit">Sign in</button>
+      </form>
+      <p class="muted small">Paper trading only: no real money, no broker connection, and nothing here is financial advice.</p>
     </div>
-    <form id="auth-form" novalidate>
-      <label class="field">Email <input id="auth-email" type="email" autocomplete="email" required></label>
-      <label class="field">Password <input id="auth-pw" type="password" autocomplete="current-password" minlength="8" required>
-        <span class="hint" id="auth-pw-hint" hidden>At least 8 characters.</span></label>
-      <p id="auth-error" class="form-error" role="alert"></p>
-      <button class="primary wide" id="auth-submit" type="submit">Sign in</button>
-    </form>
-    <p class="muted small">Paper trading only: no real money, no broker connection, and nothing here is financial advice. Your account data is private to you and you can delete it at any time in Settings.</p>
   </div>
 </div>
 
@@ -94,6 +121,7 @@
     <h2>Daily market check</h2>
     <button id="regime-refresh"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh from public data</button>
   </div>
+  <div id="tape" class="tape" hidden aria-label="Your watchlist prices"><div class="tape-track"></div></div>
   <div id="guide" class="panel guide" hidden>
     <div class="row between"><h3 style="margin:0"><svg class="i" aria-hidden="true"><use href="#i-bulb"/></svg> Getting started</h3>
       <button class="small ghost" id="guide-close">Hide</button></div>
@@ -319,6 +347,6 @@
   </div>
 </dialog>
 <div id="toast" role="status" aria-live="polite"></div>
-<script src="app.js"></script>
+<script src="app.js?v=20261127c"></script>
 </body>
 </html>
