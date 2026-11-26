@@ -281,7 +281,7 @@ $("#screen-bt").onclick = (ev) => busy(ev.target, async () => {
       if (b.status === "error") throw new Error(b.error || "The backtest failed. Try again in a few minutes.");
       if (b.status === "running") {
         $("#bt-result").innerHTML = `<div class="panel">${skeleton(`${b.message || "Working…"} (${b.elapsed_s || 0}s so far)`)}</div>`;
-        await new Promise((r) => setTimeout(r, 5000));
+        await new Promise((r) => setTimeout(r, 15000));
         continue;
       }
       renderBacktest(b);
