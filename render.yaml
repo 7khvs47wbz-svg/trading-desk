@@ -1,8 +1,9 @@
 # Render Blueprint: New > Blueprint > pick this repo.
-# DATABASE_URL is entered by hand (a free Neon Postgres connection string).
+# Creates the web service plus a Render Postgres database and links them
+# automatically (DATABASE_URL comes from the database; nothing to paste).
 services:
   - type: web
-    name: trading-desk
+    name: trading-desk-app
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
@@ -16,6 +17,12 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
-        sync: false
-      - key: FMP_API_KEY
-        sync: false
+        fromDatabase:
+          name: trading-desk-db
+          property: connectionString
+
+databases:
+  - name: trading-desk-db
+    plan: free
+    databaseName: trading_desk
+    user: trading_desk
