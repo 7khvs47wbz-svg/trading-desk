@@ -22,6 +22,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
 import engines
+import jobs
 import market
 
 ON_SERVER = bool(os.environ.get("RENDER") or os.environ.get("PRODUCTION"))
@@ -127,6 +128,7 @@ def login_required(fn):
         if not u:
             raise Unauthorized("Please sign in.")
         g.uid, g.email = u["id"], u["email"]
+        jobs.kick_forward()  # cheap: records today's forward-test picks at most every few hours
         return fn(*a, **kw)
     return wrapper
 
@@ -264,7 +266,7 @@ def get_settings():
 def save_settings():
     b = body()
     rules = {"risk_pct": (0.1, 5), "max_position_pct": (1, 100), "paper_starting_cash": (1000, 10_000_000),
-             "portfolio_cash": (0, 1e10)}
+             "portfolio_cash": (0, 1e10), "cost_bps_per_side": (0, 100)}
     for k, v in b.items():
         if k == "universe":
             db.set_setting(g.uid, k, " ".join(universe_from(v)))
@@ -303,9 +305,36 @@ def screen():
 @app.post("/api/backtest")
 @login_required
 def backtest():
-    rate_limit("backtest", 20, 600)
+    """universe_mode "sp500" (default): every stock that was in the S&P 500 on each date, run as a
+    background job ({"status": "running"} until ready). "custom": your ticker list, computed now."""
+    rate_limit("backtest", 60, 600)
     b = body()
-    return market.backtest(b["kind"], universe_from(b.get("universe") or setting("universe")))
+    kind = b.get("kind")
+    bps = float(setting("cost_bps_per_side"))
+    if kind not in market.strategies.HOLD:
+        return {"status": "ready", "kind": kind, **market.UNSUPPORTED}
+    if (b.get("universe_mode") or "sp500") == "sp500":
+        return jobs.sp500_backtest(kind, bps)
+    res = market.backtest(kind, universe_from(b.get("universe") or setting("universe")), cost_per_side=bps / 10_000)
+    return {"status": "ready", **res}
+
+
+@app.get("/api/forward")
+@login_required
+def forward():
+    """Live forward test: picks recorded each trading day before their outcome was known."""
+    bps = float(setting("cost_bps_per_side"))
+    kind = request.args.get("kind")
+    if kind:
+        return jobs.forward_stats(kind, bps)
+    return {"screens": [jobs.forward_stats(k, bps) for k in market.strategies.HOLD]}
+
+
+@app.post("/api/forward/tick")
+def forward_tick():
+    """Public and idempotent: records today's picks if they're missing (a daily cron calls it)."""
+    rate_limit("forward_tick", 12, 3600)
+    return jobs.tick()
 
 
 # ------------------------------------------------------------- sizing & gate

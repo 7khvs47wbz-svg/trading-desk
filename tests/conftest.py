@@ -10,3 +10,4 @@ os.environ.pop("DATABASE_URL", None)
 if os.environ.get("TEST_DATABASE_URL"):
     os.environ["DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
 os.environ["SQLITE_PATH"] = str(Path(tempfile.mkdtemp()) / "test.db")
+os.environ["FORWARD_AUTOKICK"] = "0"  # no background forward-test downloads during tests

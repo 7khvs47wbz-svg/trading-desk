@@ -397,8 +397,14 @@ def run_screen(kind, symbols):
 
 # ---------------------------------------------------------------- backtest
 
-def backtest(kind, symbols):
-    """5-year walk-forward basket test (see strategies.backtest)."""
+UNSUPPORTED = {"supported": False,
+               "reason": "This screen uses today's fundamentals (earnings, dividends), and the free data "
+                         "has no point-in-time history of them, so an honest backtest isn't possible."}
+
+
+def backtest(kind, symbols, cost_per_side=0.0):
+    """5-year walk-forward basket test on your own ticker list (see strategies.backtest).
+    The point-in-time S&P 500 version runs as a background job in jobs.py."""
     if kind not in strategies.HOLD:
         return {"kind": kind, "supported": False,
                 "reason": "This screen uses today's fundamentals (earnings, dividends), and the free data "
@@ -411,8 +417,11 @@ def backtest(kind, symbols):
         data = bulk_history(sorted(set(symbols) | {"SPY"}), "5y")
         if "SPY" not in data:
             raise ValueError("Couldn't load SPY for the benchmark.")
-        return strategies.backtest(kind, data)
-    return _cached(("bt", kind, tuple(symbols)), load, ttl=12 * 3600)
+        res = strategies.backtest(kind, data, cost_per_side=cost_per_side)
+        res.update(universe="custom", universe_label="Your ticker list (today's companies only)",
+                   symbols=len(symbols), symbols_with_prices=len(data) - 1)
+        return res
+    return _cached(("bt", kind, tuple(symbols), float(cost_per_side)), load, ttl=12 * 3600)
 
 
 def holding_info(symbol):

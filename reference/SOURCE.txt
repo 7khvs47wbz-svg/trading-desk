@@ -1,0 +1,6 @@
+sp500_ticker_start_end.csv
+  From https://github.com/fja05680/sp500 (MIT licence), fetched 2026-11-27.
+  One row per stint in the S&P 500: ticker, start_date, end_date (blank = still a member).
+  Used to rebuild which stocks were actually in the index on each past date, so backtests
+  don't only look at today's survivors. The app also re-downloads the latest copy weekly
+  and falls back to this file if that fails.

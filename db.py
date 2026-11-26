@@ -59,6 +59,14 @@ CREATE TABLE IF NOT EXISTS holdings (
 CREATE TABLE IF NOT EXISTS watchlist (
   id {PK}, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   symbol TEXT NOT NULL, note TEXT, added_at TEXT, UNIQUE (user_id, symbol));
+CREATE TABLE IF NOT EXISTS app_cache (
+  key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS forward_days (
+  kind TEXT NOT NULL, pick_date TEXT NOT NULL, n INTEGER, members INTEGER, note TEXT, recorded_at TEXT,
+  PRIMARY KEY (kind, pick_date));
+CREATE TABLE IF NOT EXISTS forward_picks (
+  id {PK}, kind TEXT NOT NULL, pick_date TEXT NOT NULL, symbol TEXT NOT NULL, rank INTEGER,
+  entry_price REAL, spy_entry REAL, recorded_at TEXT, UNIQUE (kind, pick_date, symbol));
 CREATE INDEX IF NOT EXISTS ix_pos_user ON paper_positions(user_id);
 CREATE INDEX IF NOT EXISTS ix_ord_user ON paper_orders(user_id);
 CREATE INDEX IF NOT EXISTS ix_jr_user ON journal(user_id);
@@ -70,6 +78,7 @@ DEFAULTS = {
     "risk_pct": 1.0,
     "max_position_pct": 20,
     "portfolio_cash": 0,
+    "cost_bps_per_side": 10,  # trading cost charged on each buy and each sell in backtests (0.10%)
     "universe": "AAPL MSFT NVDA AMZN GOOGL META AVGO TSLA LLY JPM V MA UNH XOM "
     "COST HD PG JNJ ABBV MRK KO PEP WMT BAC CVX ORCL CRM AMD NFLX ADBE TMO "
     "LIN MCD CSCO ACN ABT DHR WFC TXN NEE PM INTU AMGN QCOM IBM CAT GE ISRG "
@@ -160,3 +169,18 @@ def all_settings(uid):
     s.update({r["key"]: json.loads(r["value"])
               for r in rows("SELECT key, value FROM user_settings WHERE user_id=?", (uid,))})
     return s
+
+
+# ------------------------------------------------------------- shared (non-user) cache
+
+def cache_get(key):
+    r = one("SELECT value, updated_at FROM app_cache WHERE key=?", (key,))
+    if not r:
+        return None
+    return {"value": json.loads(r["value"]), "updated_at": r["updated_at"]}
+
+
+def cache_set(key, value):
+    execute("INSERT INTO app_cache (key, value, updated_at) VALUES (?,?,?) "
+            "ON CONFLICT (key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+            (key, json.dumps(value), now_iso()))
