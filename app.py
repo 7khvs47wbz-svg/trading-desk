@@ -149,6 +149,27 @@ def _start_session(u):
     session["uid"], session["tv"] = u["id"], u["token_version"]
 
 
+# ------------------------------------------------------------- recovery keys
+# A one-time key shown at sign-up (and on demand in Settings) lets people reset a forgotten
+# password without email. Only a hash is stored; using it issues a fresh key.
+
+_KEY_ALPHABET = "ABCDEFGHJKMNPQRSTVWXYZ23456789"  # no 0/O, 1/I/L, U
+
+
+def new_recovery_key(uid):
+    raw = "".join(secrets.choice(_KEY_ALPHABET) for _ in range(20))  # ~98 bits
+    key = "-".join(raw[i:i + 5] for i in range(0, 20, 5))
+    db.execute("DELETE FROM recovery_keys WHERE user_id=?", (uid,))
+    db.execute("INSERT INTO recovery_keys (user_id, key_hash, created_at) VALUES (?,?,?)",
+               (uid, generate_password_hash(key), db.now_iso()))
+    return key
+
+
+def _norm_key(k):
+    k = re.sub(r"[^A-Z0-9]", "", str(k or "").upper()).replace("0", "O").replace("1", "I")
+    return "-".join(k[i:i + 5] for i in range(0, len(k), 5))
+
+
 @app.post("/api/auth/signup")
 def signup():
     rate_limit("signup", 5, 3600)
@@ -163,7 +184,7 @@ def signup():
     uid = db.insert("INSERT INTO users (email, pw_hash, created_at) VALUES (?,?,?)",
                     (email, generate_password_hash(pw), db.now_iso()))
     _start_session({"id": uid, "token_version": 0})
-    return {"email": email}
+    return {"email": email, "recovery_key": new_recovery_key(uid)}
 
 
 @app.post("/api/auth/login")
@@ -251,7 +272,43 @@ def logout():
 @app.get("/api/auth/me")
 def me():
     u = current_user()
-    return {"email": u["email"] if u else None}
+    has_key = bool(u and db.one("SELECT 1 AS x FROM recovery_keys WHERE user_id=?", (u["id"],)))
+    return {"email": u["email"] if u else None, "has_recovery_key": has_key}
+
+
+@app.get("/api/auth/options")
+def auth_options():
+    """Which ways of resetting a forgotten password are available."""
+    return {"email_reset": mailer.configured(), "recovery_key_reset": True}
+
+
+@app.post("/api/auth/recovery-key")
+@login_required
+def make_recovery_key():
+    """Create (or replace) this account's recovery key. Needs the current password."""
+    rate_limit("rkey", 10, 900)
+    u = db.one("SELECT * FROM users WHERE id=?", (g.uid,))
+    if not check_password_hash(u["pw_hash"], body().get("password") or ""):
+        raise ValueError("Password is wrong.")
+    return {"recovery_key": new_recovery_key(g.uid)}
+
+
+@app.post("/api/auth/recover")
+def recover_with_key():
+    """Forgot password, no email needed: email + recovery key + new password."""
+    rate_limit("recover", 10, 900)
+    b = body()
+    email, pw = (b.get("email") or "").strip().lower(), b.get("password") or ""
+    if len(pw) < 8 or len(pw) > 200:
+        raise ValueError("Password must be at least 8 characters.")
+    u = db.one("SELECT * FROM users WHERE email=?", (email,))
+    r = db.one("SELECT key_hash FROM recovery_keys WHERE user_id=?", (u["id"],)) if u else None
+    if not r or not check_password_hash(r["key_hash"], _norm_key(b.get("recovery_key"))):
+        raise ValueError("That email and recovery key don't match.")
+    db.execute("UPDATE users SET pw_hash=?, token_version=COALESCE(token_version,0)+1, failed_logins=0, "
+               "locked_until=NULL WHERE id=?", (generate_password_hash(pw), u["id"]))
+    _start_session(db.one("SELECT * FROM users WHERE id=?", (u["id"],)))
+    return {"email": u["email"], "recovery_key": new_recovery_key(u["id"])}  # the used key is replaced
 
 
 @app.post("/api/auth/password")

@@ -101,3 +101,54 @@ def test_unconfigured_server_refuses_every_address_alike(monkeypatch):
     a = c.post("/api/auth/forgot", json={"email": "r5@test.local"})
     b = c.post("/api/auth/forgot", json={"email": "nobody5@test.local"})
     assert a.status_code == b.status_code == 400 and a.json == b.json
+
+
+# ------------------------------------------------------------- recovery keys (no email needed)
+
+import re
+
+
+def test_signup_gives_a_recovery_key_that_resets_the_password():
+    appmod._hits.clear()
+    a, other = client(), client()
+    r = a.post("/api/auth/signup", json={"email": "k1@test.local", "password": PW}).json
+    key = r["recovery_key"]
+    assert re.fullmatch(r"[A-Z2-9]{5}(-[A-Z2-9]{5}){3}", key)
+    assert a.get("/api/auth/me").json["has_recovery_key"] is True
+    other.post("/api/auth/login", json={"email": "k1@test.local", "password": PW})
+    a.post("/api/auth/logout", json={})
+    bad = a.post("/api/auth/recover", json={"email": "k1@test.local", "recovery_key": "AAAAA-AAAAA-AAAAA-AAAAA", "password": "new pass 123"})
+    assert bad.status_code == 400 and "don't match" in bad.json["error"]
+    sloppy = key.lower().replace("-", " ")  # typed without dashes, lower case
+    r2 = a.post("/api/auth/recover", json={"email": "K1@test.local", "recovery_key": sloppy, "password": "new pass 123"})
+    assert r2.status_code == 200 and r2.json["recovery_key"] != key
+    assert a.get("/api/auth/me").json["email"] == "k1@test.local"
+    assert other.get("/api/paper").status_code == 401  # other devices signed out
+    assert client().post("/api/auth/login", json={"email": "k1@test.local", "password": "new pass 123"}).status_code == 200
+    # the used key is gone; the new one works
+    again = client().post("/api/auth/recover", json={"email": "k1@test.local", "recovery_key": key, "password": "x" * 9})
+    assert again.status_code == 400
+    assert client().post("/api/auth/recover", json={"email": "k1@test.local", "recovery_key": r2.json["recovery_key"],
+                                                    "password": "third pass 1"}).status_code == 200
+
+
+def test_settings_can_make_a_new_key_with_the_password():
+    appmod._hits.clear()
+    c = client()
+    old = c.post("/api/auth/signup", json={"email": "k2@test.local", "password": PW}).json["recovery_key"]
+    assert c.post("/api/auth/recovery-key", json={"password": "wrong"}).status_code == 400
+    new = c.post("/api/auth/recovery-key", json={"password": PW}).json["recovery_key"]
+    assert new != old
+    c.post("/api/auth/logout", json={})
+    assert c.post("/api/auth/recover", json={"email": "k2@test.local", "recovery_key": old, "password": "new pass 123"}).status_code == 400
+    assert c.post("/api/auth/recover", json={"email": "k2@test.local", "recovery_key": new, "password": "new pass 123"}).status_code == 200
+
+
+def test_unknown_email_and_options():
+    appmod._hits.clear()
+    c = client()
+    r = c.post("/api/auth/recover", json={"email": "ghost@test.local", "recovery_key": "AAAAA-AAAAA-AAAAA-AAAAA", "password": "new pass 123"})
+    assert r.status_code == 400 and "don't match" in r.json["error"]  # same answer as a wrong key
+    o = c.get("/api/auth/options").json
+    assert o["recovery_key_reset"] is True and "email_reset" in o
+    assert c.get("/api/auth/me").json == {"email": None, "has_recovery_key": False}

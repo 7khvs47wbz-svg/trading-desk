@@ -546,19 +546,48 @@ function setAuthMode(m) {
   $("#forgot-open").hidden = m !== "login";
   $("#auth-error").textContent = "";
 }
-// ---- forgot password: email a 6-digit code, then set a new password with it
+$("#auth-login-tab").onclick = () => setAuthMode("login");
+$("#auth-signup-tab").onclick = () => setAuthMode("signup");
+// ---- forgot password: recovery key (always) or an emailed code (when email is set up)
+let authOpts = { email_reset: false };
+api("/auth/options").then((o) => (authOpts = o)).catch(() => {});
+function resetMode(m) {
+  $("#rk-panel").hidden = m !== "key"; $("#email-panel").hidden = m !== "email";
+  $("#rk-to-email").hidden = !authOpts.email_reset;
+  $("#reset-error").textContent = "";
+  setTimeout(() => (m === "key" ? ($("#rk-email").value ? $("#rk-key") : $("#rk-email")) : $("#reset-email")).focus(), 0);
+}
 function showReset(on) {
   $("#auth-form").hidden = on; $("#reset-form").hidden = !on;
   document.querySelector("#auth .seg").hidden = on;
   if (on) {
-    $("#reset-email").value = $("#auth-email").value.trim();
-    ["#reset-msg", "#reset-error"].forEach((id) => ($(id).textContent = ""));
+    $("#rk-email").value = $("#reset-email").value = $("#auth-email").value.trim();
+    $("#reset-msg").textContent = "";
     $("#reset-step2").hidden = $("#reset-submit").hidden = true;
-    setTimeout(() => $("#reset-email").focus(), 0);
+    resetMode("key");
   } else setTimeout(() => $("#auth-email").focus(), 0);
 }
 $("#forgot-open").onclick = () => showReset(true);
 $("#reset-back").onclick = () => showReset(false);
+$("#rk-to-email").onclick = () => resetMode("email");
+$("#email-to-rk").onclick = () => resetMode("key");
+$("#rk-key").addEventListener("input", (e) => {  // auto-format as XXXXX-XXXXX-XXXXX-XXXXX
+  const raw = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 20);
+  e.target.value = raw.match(/.{1,5}/g)?.join("-") || "";
+});
+$("#rk-submit").onclick = (ev) => busy(ev.target, async () => {
+  const email = $("#rk-email").value.trim(), recovery_key = $("#rk-key").value.trim(), password = $("#rk-pw").value;
+  $("#reset-error").textContent = "";
+  if (!email) { $("#rk-email").focus(); $("#reset-error").textContent = "Enter your email."; return; }
+  if (recovery_key.replace(/-/g, "").length !== 20) { $("#rk-key").focus(); $("#reset-error").textContent = "Enter the 20-character recovery key."; return; }
+  if (password.length < 8) { $("#rk-pw").focus(); $("#reset-error").textContent = "Password must be at least 8 characters."; return; }
+  let r;
+  try { r = await api("/auth/recover", { email, recovery_key, password }); } catch (e) { $("#reset-error").textContent = e.message; return; }
+  $("#rk-key").value = $("#rk-pw").value = "";
+  showReset(false);
+  startApp();
+  showKey(r.recovery_key, "Your old recovery key was used up, so here's a new one. Save it the same way.");
+});
 $("#reset-send").onclick = (ev) => busy(ev.target, async () => {
   const email = $("#reset-email").value.trim();
   $("#reset-error").textContent = "";
@@ -573,6 +602,7 @@ $("#reset-send").onclick = (ev) => busy(ev.target, async () => {
 });
 $("#reset-form").onsubmit = (ev) => {
   ev.preventDefault();
+  if ($("#email-panel").hidden) return $("#rk-submit").click();
   busy($("#reset-submit"), async () => {
     const email = $("#reset-email").value.trim(), code = $("#reset-code").value.trim(), password = $("#reset-pw").value;
     $("#reset-error").textContent = "";
@@ -585,8 +615,34 @@ $("#reset-form").onsubmit = (ev) => {
     toast("Password changed. You're signed in, and other devices were signed out.");
   });
 };
-$("#auth-login-tab").onclick = () => setAuthMode("login");
-$("#auth-signup-tab").onclick = () => setAuthMode("signup");
+// ---- the one-time "save your recovery key" dialog
+function showKey(key, note) {
+  const d = $("#key-dlg");
+  $("#kd-key").textContent = key;
+  d.querySelector("p").textContent = note || "If you forget your password, this key plus your email lets you set a new one. It's shown only now. Save it in a password manager or somewhere safe.";
+  $("#kd-ok").checked = false; $("#kd-done").disabled = true;
+  if (!d.open) d.showModal();
+}
+$("#key-dlg").addEventListener("cancel", (e) => { if (!$("#kd-ok").checked) e.preventDefault(); });  // Esc can't skip it
+$("#kd-ok").onchange = () => ($("#kd-done").disabled = !$("#kd-ok").checked);
+$("#kd-done").onclick = () => { $("#key-dlg").close(); $("#kd-key").textContent = ""; $("#rk-banner").hidden = true; };
+$("#kd-copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("#kd-key").textContent); toast("Recovery key copied"); }
+  catch (e) { getSelection().selectAllChildren($("#kd-key")); toast("Press ⌘C (or Ctrl+C) to copy the selected key"); }
+};
+$("#kd-download").onclick = () => {
+  const txt = `Trading Desk recovery key\n\nAccount: ${$("#acct-email").textContent || $("#auth-email").value}\nRecovery key: ${$("#kd-key").textContent}\n\nUse it on the sign-in page: Forgot password? > enter your email, this key and a new password.\nKeep it private. Anyone with this key and your email can reset your password.\n`;
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([txt], { type: "text/plain" })), download: "trading-desk-recovery-key.txt" });
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+$("#rk-make").onclick = (ev) => busy(ev.target, async () => {
+  if (!$("#rk-make-pw").value) { $("#rk-make-pw").focus(); throw new Error("Enter your password to create a recovery key."); }
+  const r = await api("/auth/recovery-key", { password: $("#rk-make-pw").value });
+  $("#rk-make-pw").value = "";
+  $("#rk-status").textContent = "You have a recovery key.";
+  showKey(r.recovery_key);
+});
+$("#rk-banner-go").onclick = () => { document.querySelector('[data-tab="tools"]').click(); setTimeout(() => { $("#rk-make-pw").scrollIntoView({ block: "center" }); $("#rk-make-pw").focus(); }, 50); };
 function showAuth() {
   document.body.classList.add("signed-out");
   $("#auth").hidden = false;
@@ -604,13 +660,19 @@ $("#auth-form").onsubmit = (ev) => {
     $("#auth-error").textContent = "";
     if (!email) { $("#auth-email").focus(); $("#auth-error").textContent = "Enter your email."; return; }
     if (password.length < (authMode === "signup" ? 8 : 1)) { $("#auth-pw").focus(); $("#auth-error").textContent = authMode === "signup" ? "Password must be at least 8 characters." : "Enter your password."; return; }
-    try { await api(`/auth/${authMode}`, { email, password }); } catch (e) { $("#auth-error").textContent = e.message; return; }
+    let r;
+    try { r = await api(`/auth/${authMode}`, { email, password }); } catch (e) { $("#auth-error").textContent = e.message; return; }
     $("#auth-pw").value = "";
     startApp();
+    if (r.recovery_key) showKey(r.recovery_key);
   });
 };
 function startApp() {
   document.body.classList.remove("signed-out");
+  api("/auth/me").then((m) => {
+    $("#rk-banner").hidden = !!m.has_recovery_key || $("#key-dlg").open;
+    $("#rk-status").textContent = m.has_recovery_key ? "You have a recovery key." : "You don't have one yet.";
+  }).catch(() => {});
   $("#auth").hidden = true;
   $("#guide").hidden = lsGet("guide-hidden") === "1";
   api("/watchlist/symbols").then((r) => { watched.clear(); r.symbols.forEach((x) => watched.add(x)); syncStars(); }).catch(() => {});

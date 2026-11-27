@@ -352,3 +352,14 @@ label.inline-select select { min-height: 40px; }
 #reset-form[hidden], #reset-step2[hidden], .link-btn[hidden] { display: none; }
 #reset-step2 { display: flex; flex-direction: column; gap: var(--sp-3); }
 #auth .seg[hidden], #auth-form[hidden] { display: none; }
+
+/* ---------- recovery key */
+.stack { display: flex; flex-direction: column; gap: var(--sp-3); }
+.stack[hidden], #rk-banner[hidden] { display: none; }
+.mono { font-family: var(--font-num); letter-spacing: .04em; }
+dialog#key-dlg { width: min(520px, calc(100vw - 24px)); background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 12px; padding: var(--sp-5); }
+dialog#key-dlg::backdrop { background: rgba(2, 6, 23, .75); }
+dialog#key-dlg[open] { display: flex; flex-direction: column; gap: var(--sp-3); }
+.key-box { font-size: clamp(17px, 4.6vw, 22px); font-weight: 600; text-align: center; padding: var(--sp-4); border: 1px dashed var(--accent); border-radius: var(--radius); background: var(--gain-bg); user-select: all; word-break: break-all; }
+#rk-banner { margin-top: 0; }
+#rk-banner button { margin-left: var(--sp-2); }

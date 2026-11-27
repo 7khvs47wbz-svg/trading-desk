@@ -18,7 +18,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="style.css?v=20261127e">
+<link rel="stylesheet" href="style.css?v=20261128a">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
@@ -95,17 +95,30 @@
         <button type="button" class="link-btn" id="forgot-open">Forgot password?</button>
       </form>
       <form id="reset-form" novalidate hidden>
-        <p class="muted small" style="margin:0">We'll email you a 6-digit code. Enter it below with a new password.</p>
-        <label class="field">Email <input id="reset-email" type="email" autocomplete="email" required></label>
-        <button type="button" id="reset-send">Email me a code</button>
-        <div id="reset-step2" hidden>
-          <label class="field">6-digit code <input id="reset-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}"></label>
-          <label class="field">New password <input id="reset-pw" type="password" autocomplete="new-password" minlength="8">
+        <div id="rk-panel" class="stack">
+          <p class="muted small" style="margin:0">Enter your email and the recovery key you saved when you created your account (or later in Settings).</p>
+          <label class="field">Email <input id="rk-email" type="email" autocomplete="email"></label>
+          <label class="field">Recovery key <input id="rk-key" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" class="mono"></label>
+          <label class="field">New password <input id="rk-pw" type="password" autocomplete="new-password" minlength="8">
             <span class="hint">At least 8 characters. Other devices are signed out.</span></label>
+          <button class="primary wide" id="rk-submit" type="button">Set new password</button>
+          <button type="button" class="link-btn" id="rk-to-email" hidden>No recovery key? Email me a code instead</button>
+          <p class="muted small" id="rk-nokey" style="margin:0">Lost your recovery key too? Then the account can't be recovered here, so create a new one. (Paper trading only, no real money is involved.)</p>
         </div>
-        <p id="reset-msg" class="muted small" role="status" style="margin:0"></p>
+        <div id="email-panel" class="stack" hidden>
+          <p class="muted small" style="margin:0">We'll email you a 6-digit code. Enter it below with a new password.</p>
+          <label class="field">Email <input id="reset-email" type="email" autocomplete="email"></label>
+          <button type="button" id="reset-send">Email me a code</button>
+          <div id="reset-step2" hidden>
+            <label class="field">6-digit code <input id="reset-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}"></label>
+            <label class="field">New password <input id="reset-pw" type="password" autocomplete="new-password" minlength="8">
+              <span class="hint">At least 8 characters. Other devices are signed out.</span></label>
+          </div>
+          <p id="reset-msg" class="muted small" role="status" style="margin:0"></p>
+          <button class="primary wide" id="reset-submit" type="submit" hidden>Set new password</button>
+          <button type="button" class="link-btn" id="email-to-rk">Use my recovery key instead</button>
+        </div>
         <p id="reset-error" class="form-error" role="alert"></p>
-        <button class="primary wide" id="reset-submit" type="submit" hidden>Set new password</button>
         <button type="button" class="link-btn" id="reset-back">Back to sign in</button>
       </form>
       <p class="muted small">Paper trading only: no real money, no broker connection, and nothing here is financial advice.</p>
@@ -129,6 +142,7 @@
 </header>
 <div class="disclaimer"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg>Decision support and paper trading only. Not financial advice. No real orders are placed. Prices come from Yahoo Finance and are cross-checked against Nasdaq; paper trades are blocked if the two differ by more than 2%.</div>
 <main>
+<div id="rk-banner" class="notice warn" role="status" hidden><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><div><b>Save a recovery key.</b> It's how you get back in if you forget your password. <button class="small" id="rk-banner-go">Create one in Settings</button></div></div>
 
 <!-- COCKPIT -->
 <section id="cockpit" class="tab active" role="tabpanel" aria-labelledby="cockpit">
@@ -341,6 +355,12 @@
         <button id="pw-save">Change password</button>
       </div>
       <div>
+        <h4>Recovery key</h4>
+        <p class="muted small">Lets you reset a forgotten password without email. Making a new key replaces the old one. <span id="rk-status"></span></p>
+        <div class="form"><label>Password <input id="rk-make-pw" type="password" autocomplete="current-password"></label></div>
+        <button id="rk-make">Create a new recovery key</button>
+      </div>
+      <div>
         <h4>Delete account</h4>
         <p class="muted small">Permanently deletes your login, paper trades, holdings, journal and settings. This can't be undone.</p>
         <div class="form"><label>Password <input id="del-pw" type="password" autocomplete="current-password"></label></div>
@@ -350,6 +370,17 @@
   </div>
 </section>
 </main>
+<dialog id="key-dlg" aria-labelledby="kd-title">
+  <h3 id="kd-title" style="margin-top:0">Save your recovery key</h3>
+  <p class="muted">If you forget your password, this key plus your email lets you set a new one. It's shown only now. Save it in a password manager or somewhere safe.</p>
+  <div class="key-box mono" id="kd-key" tabindex="0" aria-label="Your recovery key"></div>
+  <div class="row wrap">
+    <button id="kd-copy">Copy</button>
+    <button id="kd-download">Download as a file</button>
+  </div>
+  <label class="check"><input type="checkbox" id="kd-ok"> I've saved my recovery key</label>
+  <button class="primary wide" id="kd-done" disabled>Continue</button>
+</dialog>
 <dialog id="chart-dlg" aria-labelledby="cd-title">
   <div class="dlg-head">
     <div><h3 id="cd-title" style="margin:0">—</h3><div id="cd-sub" class="muted small"></div></div>
@@ -369,6 +400,6 @@
   </div>
 </dialog>
 <div id="toast" role="status" aria-live="polite"></div>
-<script src="app.js?v=20261127e"></script>
+<script src="app.js?v=20261128a"></script>
 </body>
 </html>
