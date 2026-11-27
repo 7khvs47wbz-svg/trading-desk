@@ -90,3 +90,14 @@ def test_mailer_refuses_on_server_without_settings(monkeypatch):
     monkeypatch.setenv("RENDER", "1")
     with pytest.raises(ValueError, match="isn't switched on"):
         mailer.send("x@test.local", "s", "b")
+
+
+def test_unconfigured_server_refuses_every_address_alike(monkeypatch):
+    monkeypatch.delenv("EMAIL_WEBHOOK_URL", raising=False)
+    monkeypatch.setenv("RENDER", "1")
+    appmod._hits.clear()
+    c = client()
+    c.post("/api/auth/signup", json={"email": "r5@test.local", "password": PW})
+    a = c.post("/api/auth/forgot", json={"email": "r5@test.local"})
+    b = c.post("/api/auth/forgot", json={"email": "nobody5@test.local"})
+    assert a.status_code == b.status_code == 400 and a.json == b.json

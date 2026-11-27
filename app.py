@@ -199,6 +199,7 @@ def forgot_password():
     email = (body().get("email") or "").strip().lower()
     if not EMAIL_RE.match(email):
         raise ValueError("Enter a valid email address.")
+    mailer.require()
     u = db.one("SELECT id, email FROM users WHERE email=?", (email,))
     if not u:
         return {"ok": True, "message": RESET_SENT}

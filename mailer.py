@@ -11,10 +11,16 @@ def configured():
     return bool(os.environ.get("EMAIL_WEBHOOK_URL") and os.environ.get("EMAIL_WEBHOOK_SECRET"))
 
 
+def require():
+    """Refuse up front on the server when email isn't set up, the same way for every address
+    (so the answer never reveals whether an account exists)."""
+    if not configured() and (os.environ.get("RENDER") or os.environ.get("PRODUCTION")):
+        raise ValueError("Password reset by email isn't switched on yet. Please contact the site owner.")
+
+
 def send(to, subject, body):
+    require()
     if not configured():
-        if os.environ.get("RENDER") or os.environ.get("PRODUCTION"):
-            raise ValueError("Password reset by email isn't switched on yet. Please contact the site owner.")
         print(f"\n[DEV EMAIL] to={to}\n  {subject}\n  {body}\n", flush=True)
         return
     r = requests.post(os.environ["EMAIL_WEBHOOK_URL"], timeout=20,
