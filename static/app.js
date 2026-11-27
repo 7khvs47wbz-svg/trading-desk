@@ -543,8 +543,48 @@ function setAuthMode(m) {
   $("#auth-submit").textContent = m === "login" ? "Sign in" : "Create account";
   $("#auth-pw").autocomplete = m === "login" ? "current-password" : "new-password";
   $("#auth-pw-hint").hidden = m === "login";
+  $("#forgot-open").hidden = m !== "login";
   $("#auth-error").textContent = "";
 }
+// ---- forgot password: email a 6-digit code, then set a new password with it
+function showReset(on) {
+  $("#auth-form").hidden = on; $("#reset-form").hidden = !on;
+  document.querySelector("#auth .seg").hidden = on;
+  if (on) {
+    $("#reset-email").value = $("#auth-email").value.trim();
+    ["#reset-msg", "#reset-error"].forEach((id) => ($(id).textContent = ""));
+    $("#reset-step2").hidden = $("#reset-submit").hidden = true;
+    setTimeout(() => $("#reset-email").focus(), 0);
+  } else setTimeout(() => $("#auth-email").focus(), 0);
+}
+$("#forgot-open").onclick = () => showReset(true);
+$("#reset-back").onclick = () => showReset(false);
+$("#reset-send").onclick = (ev) => busy(ev.target, async () => {
+  const email = $("#reset-email").value.trim();
+  $("#reset-error").textContent = "";
+  if (!email) { $("#reset-email").focus(); $("#reset-error").textContent = "Enter your email."; return; }
+  try {
+    const r = await api("/auth/forgot", { email });
+    $("#reset-msg").textContent = r.message + " Check your spam folder too.";
+    $("#reset-send").textContent = "Send a new code";
+    $("#reset-step2").hidden = $("#reset-submit").hidden = false;
+    $("#reset-code").focus();
+  } catch (e) { $("#reset-error").textContent = e.message; }
+});
+$("#reset-form").onsubmit = (ev) => {
+  ev.preventDefault();
+  busy($("#reset-submit"), async () => {
+    const email = $("#reset-email").value.trim(), code = $("#reset-code").value.trim(), password = $("#reset-pw").value;
+    $("#reset-error").textContent = "";
+    if (!/^\d{6}$/.test(code)) { $("#reset-code").focus(); $("#reset-error").textContent = "Enter the 6-digit code from the email."; return; }
+    if (password.length < 8) { $("#reset-pw").focus(); $("#reset-error").textContent = "Password must be at least 8 characters."; return; }
+    try { await api("/auth/reset", { email, code, password }); } catch (e) { $("#reset-error").textContent = e.message; return; }
+    $("#reset-pw").value = $("#reset-code").value = "";
+    showReset(false);
+    startApp();
+    toast("Password changed. You're signed in, and other devices were signed out.");
+  });
+};
 $("#auth-login-tab").onclick = () => setAuthMode("login");
 $("#auth-signup-tab").onclick = () => setAuthMode("signup");
 function showAuth() {

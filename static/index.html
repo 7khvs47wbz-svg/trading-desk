@@ -92,6 +92,21 @@
           <span class="hint" id="auth-pw-hint" hidden>At least 8 characters.</span></label>
         <p id="auth-error" class="form-error" role="alert"></p>
         <button class="primary wide" id="auth-submit" type="submit">Sign in</button>
+        <button type="button" class="link-btn" id="forgot-open">Forgot password?</button>
+      </form>
+      <form id="reset-form" novalidate hidden>
+        <p class="muted small" style="margin:0">We'll email you a 6-digit code. Enter it below with a new password.</p>
+        <label class="field">Email <input id="reset-email" type="email" autocomplete="email" required></label>
+        <button type="button" id="reset-send">Email me a code</button>
+        <div id="reset-step2" hidden>
+          <label class="field">6-digit code <input id="reset-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}"></label>
+          <label class="field">New password <input id="reset-pw" type="password" autocomplete="new-password" minlength="8">
+            <span class="hint">At least 8 characters. Other devices are signed out.</span></label>
+        </div>
+        <p id="reset-msg" class="muted small" role="status" style="margin:0"></p>
+        <p id="reset-error" class="form-error" role="alert"></p>
+        <button class="primary wide" id="reset-submit" type="submit" hidden>Set new password</button>
+        <button type="button" class="link-btn" id="reset-back">Back to sign in</button>
       </form>
       <p class="muted small">Paper trading only: no real money, no broker connection, and nothing here is financial advice.</p>
     </div>

@@ -23,6 +23,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import db
 import engines
 import jobs
+import mailer
 import market
 
 ON_SERVER = bool(os.environ.get("RENDER") or os.environ.get("PRODUCTION"))
@@ -183,6 +184,60 @@ def login():
         raise ValueError("Wrong email or password.")
     db.execute("UPDATE users SET failed_logins=0, locked_until=NULL WHERE id=?", (u["id"],))
     _start_session(u)
+    return {"email": u["email"]}
+
+
+RESET_TTL_MIN = 15
+RESET_MAX_TRIES = 5
+RESET_SENT = "If an account exists for that email, we've sent it a 6-digit code. It expires in 15 minutes."
+
+
+@app.post("/api/auth/forgot")
+def forgot_password():
+    """Email a 6-digit reset code. Same answer whether or not the account exists."""
+    rate_limit("forgot", 5, 3600)
+    email = (body().get("email") or "").strip().lower()
+    if not EMAIL_RE.match(email):
+        raise ValueError("Enter a valid email address.")
+    u = db.one("SELECT id, email FROM users WHERE email=?", (email,))
+    if not u:
+        return {"ok": True, "message": RESET_SENT}
+    prev = db.one("SELECT created_at FROM password_resets WHERE user_id=?", (u["id"],))
+    now = datetime.now(timezone.utc)
+    if prev and prev["created_at"] and now - datetime.fromisoformat(prev["created_at"]) < timedelta(seconds=60):
+        return {"ok": True, "message": RESET_SENT}  # one email a minute per account
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    mailer.send(u["email"], f"Trading Desk password reset code: {code}",
+                f"Your Trading Desk password reset code is {code}.\n\nIt expires in {RESET_TTL_MIN} minutes. "
+                "If you didn't ask to reset your password, you can ignore this email; your password hasn't changed.")
+    db.execute("DELETE FROM password_resets WHERE user_id=?", (u["id"],))
+    db.execute("INSERT INTO password_resets (user_id, code_hash, expires_at, attempts, created_at) VALUES (?,?,?,0,?)",
+               (u["id"], generate_password_hash(code), (now + timedelta(minutes=RESET_TTL_MIN)).isoformat(),
+                now.isoformat()))
+    return {"ok": True, "message": RESET_SENT}
+
+
+@app.post("/api/auth/reset")
+def reset_password():
+    """Check the emailed code, set the new password, sign out other devices, sign in here."""
+    rate_limit("reset", 20, 900)
+    b = body()
+    email, code, pw = (b.get("email") or "").strip().lower(), str(b.get("code") or "").strip(), b.get("password") or ""
+    if len(pw) < 8 or len(pw) > 200:
+        raise ValueError("Password must be at least 8 characters.")
+    bad = "That code is wrong or has expired. Ask for a new one."
+    u = db.one("SELECT * FROM users WHERE email=?", (email,))
+    r = db.one("SELECT * FROM password_resets WHERE user_id=?", (u["id"],)) if u else None
+    if not r or datetime.fromisoformat(r["expires_at"]) < datetime.now(timezone.utc) or r["attempts"] >= RESET_MAX_TRIES:
+        raise ValueError(bad)
+    if not re.fullmatch(r"\d{6}", code) or not check_password_hash(r["code_hash"], code):
+        db.execute("UPDATE password_resets SET attempts=attempts+1 WHERE user_id=?", (u["id"],))
+        left = RESET_MAX_TRIES - r["attempts"] - 1
+        raise ValueError(f"Wrong code. {left} tr{'y' if left == 1 else 'ies'} left." if left > 0 else bad)
+    db.execute("UPDATE users SET pw_hash=?, token_version=COALESCE(token_version,0)+1, failed_logins=0, "
+               "locked_until=NULL WHERE id=?", (generate_password_hash(pw), u["id"]))
+    db.execute("DELETE FROM password_resets WHERE user_id=?", (u["id"],))
+    _start_session(db.one("SELECT * FROM users WHERE id=?", (u["id"],)))
     return {"email": u["email"]}
 
 

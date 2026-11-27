@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS holdings (
 CREATE TABLE IF NOT EXISTS watchlist (
   id {PK}, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   symbol TEXT NOT NULL, note TEXT, added_at TEXT, UNIQUE (user_id, symbol));
+CREATE TABLE IF NOT EXISTS password_resets (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  code_hash TEXT NOT NULL, expires_at TEXT NOT NULL, attempts INTEGER DEFAULT 0, created_at TEXT);
 CREATE TABLE IF NOT EXISTS app_cache (
   key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS forward_days (
