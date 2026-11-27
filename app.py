@@ -40,6 +40,11 @@ app.config.update(
 if not app.config["SECRET_KEY"]:
     raise SystemExit("SECRET_KEY must be set on the server.")
 db.init()
+if os.environ.get("OLD_DATABASE_URL"):  # one-time copy from the previous database (see db.migrate_from)
+    try:
+        print("database migration:", db.migrate_from(os.environ["OLD_DATABASE_URL"]), flush=True)
+    except Exception:  # noqa: BLE001  (never block startup; the old data stays where it is)
+        traceback.print_exc()
 
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,}$")
 MAX_UNIVERSE = 150

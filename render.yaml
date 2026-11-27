@@ -1,6 +1,7 @@
 # Render Blueprint: New > Blueprint > pick this repo.
-# Creates the web service plus a Render Postgres database and links them
-# automatically (DATABASE_URL comes from the database; nothing to paste).
+# DATABASE_URL: the app's Postgres. It's entered in the dashboard (a free Neon database, which
+# doesn't expire). OLD_DATABASE_URL points at the earlier Render Postgres; on startup the app
+# copies its rows into DATABASE_URL once, if the new database is still empty (db.migrate_from).
 services:
   - type: web
     name: trading-desk-app
@@ -17,6 +18,8 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
+        sync: false
+      - key: OLD_DATABASE_URL
         fromDatabase:
           name: trading-desk-db
           property: connectionString

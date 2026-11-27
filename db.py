@@ -184,3 +184,49 @@ def cache_set(key, value):
     execute("INSERT INTO app_cache (key, value, updated_at) VALUES (?,?,?) "
             "ON CONFLICT (key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
             (key, json.dumps(value), now_iso()))
+
+
+# ------------------------------------------------------------- one-time move to a new database
+
+TABLES = ["users", "user_settings", "paper_positions", "paper_orders", "journal", "holdings", "watchlist",
+          "app_cache", "forward_days", "forward_picks"]  # parents before children (foreign keys)
+SERIAL_TABLES = ["users", "paper_positions", "paper_orders", "journal", "holdings", "watchlist", "forward_picks"]
+
+
+def copy_tables(src, dst):
+    """Copy every row from connection `src` to connection `dst` in one transaction, keeping ids,
+    then move the id sequences past the copied rows. Returns {table: rows copied}."""
+    counts = {}
+    with dst.transaction():
+        for t in TABLES:
+            try:
+                rows = src.execute(f"SELECT * FROM {t}").fetchall()
+            except Exception:  # noqa: BLE001  (an older database may not have every table)
+                counts[t] = 0
+                continue
+            if rows:
+                cols = list(rows[0].keys())
+                dst.cursor().executemany(
+                    f"INSERT INTO {t} ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))}) ON CONFLICT DO NOTHING",
+                    [tuple(r[c] for c in cols) for r in rows])
+            counts[t] = len(rows)
+        for t in SERIAL_TABLES:
+            dst.execute(f"SELECT setval(pg_get_serial_sequence('{t}', 'id'), "
+                        f"COALESCE((SELECT MAX(id) FROM {t}), 0) + 1, false)")
+    return counts
+
+
+def migrate_from(src_raw):
+    """Run at startup when OLD_DATABASE_URL is set: if this (new) database has no users yet and the
+    old one has data, copy everything across. Safe to leave on: it never runs twice."""
+    src = _clean_db_url(src_raw)
+    if not PG or not src or src == DATABASE_URL:
+        return {"status": "skipped", "reason": "no separate old Postgres database"}
+    if one("SELECT COUNT(*) AS n FROM users")["n"] > 0:
+        return {"status": "skipped", "reason": "the new database already has users"}
+    import psycopg
+    from psycopg.rows import dict_row
+    with psycopg.connect(src, row_factory=dict_row, autocommit=True) as s, _pg_pool().connection() as d:
+        counts = copy_tables(s, d)
+    cache_set("migration", {"at": now_iso(), "rows": counts})
+    return {"status": "copied", "rows": counts}

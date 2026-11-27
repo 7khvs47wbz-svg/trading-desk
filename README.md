@@ -68,8 +68,10 @@ python3.12 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 ## Deploy (Render, free)
 
 1. On render.com: **New > Blueprint**, and give it this repo. Render reads `render.yaml`.
-2. It creates the web service and a Postgres database and links them (`DATABASE_URL` is filled
-   in automatically; `SECRET_KEY` is generated). Nothing to paste.
+2. It creates the web service (with a generated `SECRET_KEY`). Set `DATABASE_URL` to a Postgres
+   connection string, for example a free Neon database, which doesn't expire.
+   `OLD_DATABASE_URL` (filled from the blueprint's Render Postgres) is only for moving data: on
+   startup the app copies every row into an empty `DATABASE_URL` once, keeping ids.
 3. Deploys run on every push to `main`.
 
 The free web service sleeps after 15 idle minutes (the first visit then takes ~30-60 seconds), and
