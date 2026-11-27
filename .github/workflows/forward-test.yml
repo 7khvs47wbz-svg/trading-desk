@@ -1,0 +1,19 @@
+# Records the live forward test once per trading day, after the US close.
+# The endpoint is public and idempotent: it only writes picks that are missing.
+name: forward-test
+on:
+  schedule:
+    - cron: "30 21 * * 1-5"   # 21:30 UTC = 16:30 New York in winter, 17:30 in summer
+  workflow_dispatch:
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake the app and record today's picks
+        run: |
+          for i in 1 2 3; do
+            curl -fsS --max-time 120 -X POST -H "Content-Type: application/json" -d '{}' \
+              https://trading-desk-app-lore.onrender.com/api/forward/tick && exit 0
+            sleep 60
+          done
+          exit 1
